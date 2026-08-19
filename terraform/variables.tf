@@ -25,6 +25,16 @@ variable "api_lambda_artifact_path" {
   default     = "../backend/dist/api-lambda.zip"
 }
 
+variable "spa_build_dir" {
+  description = <<-EOT
+    Path to the built SPA (`npm run build` output in frontend/). Terraform
+    uploads every file here directly to the SPA bucket and invalidates
+    CloudFront on change — build -> apply is the whole frontend deploy.
+  EOT
+  type        = string
+  default     = "../frontend/dist"
+}
+
 variable "log_retention_days" {
   description = "CloudWatch Logs retention, in days. Kept short — log retention is the main sneaky cost (§2.2)."
   type        = number

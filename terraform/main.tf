@@ -16,6 +16,7 @@ module "api" {
 module "frontend" {
   source = "./modules/frontend"
 
-  project     = var.project
-  environment = var.environment
+  project       = var.project
+  environment   = var.environment
+  spa_build_dir = var.spa_build_dir
 }
