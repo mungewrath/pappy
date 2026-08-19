@@ -1,0 +1,24 @@
+# Terraform
+terraform/.terraform/
+terraform/*.tfstate
+terraform/*.tfstate.*
+terraform/*.tfplan
+terraform/override.tf
+terraform/override.tf.json
+terraform/crash.log
+
+# Backend (Python)
+backend/.venv/
+backend/dist/
+backend/__pycache__/
+backend/**/__pycache__/
+backend/.pytest_cache/
+backend/.mypy_cache/
+backend/.ruff_cache/
+backend/*.egg-info/
+
+# Dev server runtime (pid files, logs) from scripts/dev-up.sh
+.run/
+
+# Editor / OS
+.DS_Store

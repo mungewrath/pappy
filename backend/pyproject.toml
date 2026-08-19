@@ -1,0 +1,37 @@
+[project]
+name = "pappy"
+version = "0.1.0"
+description = "Pappy household payroll manager — API backend"
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi>=0.115",
+    "mangum>=0.19",
+    "pydantic>=2.9",
+]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.27",
+    "mypy>=1.13",
+    "pytest>=8.3",
+    "ruff>=0.7",
+    "uvicorn>=0.32",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["pappy"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
