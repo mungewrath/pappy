@@ -27,3 +27,8 @@ output "cognito_hosted_ui_domain" {
   description = "Cognito Hosted UI domain — set as the SPA's VITE_COGNITO_DOMAIN."
   value       = module.auth.hosted_ui_domain
 }
+
+output "github_deploy_role_arn" {
+  description = "IAM role ARN GitHub Actions assumes via OIDC to run deploys — set as the AWS_DEPLOY_ROLE_ARN repository variable."
+  value       = module.cicd.github_deploy_role_arn
+}

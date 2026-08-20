@@ -59,3 +59,9 @@ variable "owner_email" {
   type        = string
   default     = "matthew.unrath@gmail.com"
 }
+
+variable "github_repo" {
+  description = "GitHub repository allowed to assume the CI/CD deploy role, as \"org/repo\"."
+  type        = string
+  default     = "mungewrath/pappy"
+}

@@ -1,0 +1,104 @@
+name: Deploy
+
+# Push-to-main only: `deploy` builds and applies infra for every commit that
+# lands on main. checks run on the same trigger and gate the deploy job —
+# this workflow doesn't run on PRs/other branches.
+on:
+  push:
+    branches: [main]
+
+env:
+  AWS_REGION: us-west-2
+  AWS_DEPLOY_ROLE_ARN: arn:aws:iam::615237235358:role/pappy-cicd-deploy
+
+permissions:
+  contents: read
+
+jobs:
+  backend-checks:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - run: uv sync
+      - run: uv run ruff check .
+      - run: uv run mypy pappy
+      - run: uv run pytest
+
+  frontend-checks:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci
+      - run: npm run lint
+      # Type-check only — the real production build (with VITE_* baked in)
+      # happens in the deploy job via scripts/deploy.sh.
+      - run: npx tsc -b
+
+  deploy:
+    needs: [backend-checks, frontend-checks]
+    runs-on: ubuntu-latest
+    concurrency:
+      group: pappy-deploy
+      cancel-in-progress: false
+    permissions:
+      # id-token:write is what lets this job exchange a GitHub-issued OIDC
+      # token for temporary AWS credentials — see
+      # terraform/modules/cicd and the AWS docs on GitHub OIDC federation.
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+        working-directory: frontend
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      # Builds backend/dist/api-lambda.zip — the artifact the `api` module
+      # reads via var.api_lambda_artifact_path (packaging happens outside
+      # Terraform, see backend/build.sh and design-doc.md §2.4).
+      - run: ./build.sh
+        working-directory: backend
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.15.4"
+          terraform_wrapper: false
+
+      - run: terraform init -input=false
+        working-directory: terraform
+
+      # Builds the SPA with the deployed backend's config baked in (VITE_*
+      # vars read from `terraform output`), then applies Terraform — see
+      # scripts/deploy.sh for why this can't just be `npm run build`.
+      - run: ./scripts/deploy.sh -auto-approve -input=false

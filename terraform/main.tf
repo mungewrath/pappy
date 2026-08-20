@@ -32,3 +32,16 @@ module "frontend" {
   environment   = var.environment
   spa_build_dir = var.spa_build_dir
 }
+
+# Account-level, not per-environment: the OIDC provider is a singleton per
+# AWS account/URL, and one deploy role assumed from CI applies both the
+# `dev` and `prod` workspaces (§2.4 plans a `dev`/`prod` split later — when
+# that lands, this module must only be instantiated from one of them, e.g.
+# guarded by `var.environment == "dev"`, to avoid a duplicate-OIDC-provider
+# error on `terraform apply` in the other workspace).
+module "cicd" {
+  source = "./modules/cicd"
+
+  project     = var.project
+  github_repo = var.github_repo
+}
