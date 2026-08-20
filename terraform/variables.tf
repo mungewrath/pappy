@@ -40,3 +40,22 @@ variable "log_retention_days" {
   type        = number
   default     = 30
 }
+
+variable "cognito_domain_prefix" {
+  description = <<-EOT
+    Prefix for the Cognito Hosted UI domain
+    (https://<prefix>.auth.<region>.amazoncognito.com). Must be globally
+    unique across all AWS accounts in the region.
+  EOT
+  type        = string
+  default     = "mungewrath-pappy"
+}
+
+variable "owner_email" {
+  description = <<-EOT
+    Email of the initial OWNER user (§7.1). Admin-created since self-signup
+    is disabled — Cognito emails this address a temporary password.
+  EOT
+  type        = string
+  default     = "matthew.unrath@gmail.com"
+}

@@ -18,7 +18,7 @@ export interface HelloResponse {
 }
 
 async function apiFetch<T>(path: string): Promise<T> {
-  const token = getAccessToken();
+  const token = await getAccessToken();
   const headers: HeadersInit = token ? { Authorization: `Bearer ${token}` } : {};
 
   const response = await fetch(`${API_BASE_URL}${path}`, { headers });

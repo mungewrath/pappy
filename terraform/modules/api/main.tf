@@ -1,8 +1,8 @@
 # API Gateway HTTP API + a single Lambda ("monolith Lambda") running the
-# FastAPI app via Mangum (§2.2). No JWT authorizer yet — Cognito auth is a
-# later phase; every route here is currently unauthenticated. Adding the
-# authorizer later is additive: an `aws_apigatewayv2_authorizer` resource and
-# an `authorization_type`/`authorizer_id` on the route(s) that need it.
+# FastAPI app via Mangum (§2.2). A JWT authorizer validates Cognito-issued
+# tokens natively — API Gateway rejects unauthenticated requests before
+# Lambda is invoked (§7.1). `/health` stays open (it's a liveness check with
+# no sensitive data); every other route requires a valid JWT.
 
 locals {
   name_prefix = "${var.project}-${var.environment}"
@@ -71,11 +71,38 @@ resource "aws_apigatewayv2_integration" "lambda" {
   payload_format_version = "2.0"
 }
 
-# Catch-all route: the FastAPI app owns URL routing, API Gateway just proxies.
-resource "aws_apigatewayv2_route" "default" {
+# JWT authorizer, validating Cognito-issued access tokens (§7.1). API
+# Gateway checks the signature/expiry/issuer/audience itself and rejects bad
+# tokens before Lambda runs; the Lambda still derives `employerId` from the
+# token's `sub` claim for authorization scoping.
+resource "aws_apigatewayv2_authorizer" "cognito" {
+  api_id           = aws_apigatewayv2_api.this.id
+  name             = "${local.name_prefix}-cognito"
+  authorizer_type  = "JWT"
+  identity_sources = ["$request.header.Authorization"]
+
+  jwt_configuration {
+    audience = [var.cognito_user_pool_client_id]
+    issuer   = var.cognito_issuer
+  }
+}
+
+# GET /health: liveness check, deliberately unauthenticated — nothing
+# sensitive, and useful for probing the deploy without a token in hand.
+resource "aws_apigatewayv2_route" "health" {
   api_id    = aws_apigatewayv2_api.this.id
-  route_key = "$default"
+  route_key = "GET /health"
   target    = "integrations/${aws_apigatewayv2_integration.lambda.id}"
+}
+
+# Every other route: the FastAPI app owns URL routing, API Gateway just
+# proxies — but only once the JWT authorizer has approved the request.
+resource "aws_apigatewayv2_route" "default" {
+  api_id             = aws_apigatewayv2_api.this.id
+  route_key          = "$default"
+  target             = "integrations/${aws_apigatewayv2_integration.lambda.id}"
+  authorization_type = "JWT"
+  authorizer_id      = aws_apigatewayv2_authorizer.cognito.id
 }
 
 resource "aws_apigatewayv2_stage" "default" {

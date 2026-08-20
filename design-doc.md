@@ -50,7 +50,7 @@ chosen to cost approximately nothing at idle, not to scale.
         │  OIDC login
         ▼
    ┌─────────────────┐
-   │ Cognito         │  Hosted UI, single user pool, MFA
+   │ Cognito         │  Hosted UI, single user pool
    │ User Pool       │
    └─────────────────┘
         │ JWT
@@ -79,7 +79,7 @@ chosen to cost approximately nothing at idle, not to scale.
 | Concern | Choice | Why |
 |---|---|---|
 | Frontend | React + Vite SPA, S3 + CloudFront (OAC), responsive layout | Static hosting is pennies; one responsive codebase satisfies "mobile or desktop" without a native app |
-| Auth | Cognito user pool, Hosted UI, TOTP MFA required | Free tier covers a single user indefinitely; offloads password/MFA/reset handling. API Gateway validates the JWT natively — no custom auth code |
+| Auth | Cognito user pool, Hosted UI, no MFA | Free tier covers a single user indefinitely; offloads password/reset handling. API Gateway validates the JWT natively — no custom auth code. MFA was dropped for sign-in convenience (§7.1); revisit if the threat model changes |
 | API | API Gateway **HTTP API** (not REST API) + one Lambda | HTTP API is ~70% cheaper and supports JWT authorizers natively. A single "monolith Lambda" keeps cold starts and deployment simple at this scale |
 | Runtime | Python 3.13, ARM64, 512 MB | `decimal.Decimal` in the standard library is the right primitive for money — exact base-10 arithmetic with explicit, auditable rounding contexts (§5.5). Also the team's preferred language. ARM64 is cheaper per GB-s |
 | API framework | FastAPI + Pydantic v2, adapted via Mangum | Pydantic validates request bodies and rate-table JSON against the same models, and emits an OpenAPI schema the SPA's client is generated from — recovering the type-sharing that a single-language stack would have given for free |
@@ -449,13 +449,15 @@ No offline support in v1; a household payroll app can require connectivity.
 
 ### 7.1 Authentication & authorization
 
-Cognito user pool with TOTP MFA required, strong password policy, and no self-signup
-(users are created by the administrator). API Gateway's JWT authorizer rejects
-unauthenticated requests before Lambda is invoked. The Lambda additionally derives
-`employerId` from the token's `sub` claim and scopes every DynamoDB key by it —
-the client never supplies `employerId`. Two roles: `OWNER` (full access) and
-`VIEWER` (read-only; useful for an accountant, and for the employee to see their
-own stubs in a later version).
+Cognito user pool with a strong password policy and no self-signup (users are
+created by the administrator). MFA is intentionally off — traded away for sign-in
+convenience given the single-user threat model; revisit if the user base grows
+beyond the household employer and an accountant/employee `VIEWER`. API Gateway's
+JWT authorizer rejects unauthenticated requests before Lambda is invoked. The
+Lambda additionally derives `employerId` from the token's `sub` claim and scopes
+every DynamoDB key by it — the client never supplies `employerId`. Two roles:
+`OWNER` (full access) and `VIEWER` (read-only; useful for an accountant, and for
+the employee to see their own stubs in a later version).
 
 ### 7.2 Transport & storage
 
@@ -565,9 +567,12 @@ item**, not a generator.
 6. **Termination / final paycheck**, and issuing a W-2 mid-year if employment ends.
 7. **Employee self-service** — letting the nanny view their own stubs and W-2 is a
    natural v2, and the `VIEWER` role leaves room for it.
-8. **Backup and account recovery.** With one user and MFA, a lost device locks the
-   employer out of their own tax records. A documented recovery path (second MFA
-   factor, or an exported encrypted archive) is required, not optional.
+8. **Backup and account recovery.** With one user and no MFA, account recovery
+   is via verified email — a lost/compromised email locks the employer out of
+   their own tax records (or worse, a compromised email is now the entire
+   auth boundary). A documented recovery path (e.g. an exported encrypted
+   archive) is required, not optional; reconsider MFA if this risk proves
+   unacceptable in practice.
 9. **Multi-year rate maintenance is the real ongoing cost of this app.** Every
     January someone must update the rate tables. The rollover checklist (§5.2)
     makes that explicit rather than leaving it as tribal knowledge.

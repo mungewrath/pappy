@@ -23,3 +23,13 @@ variable "cors_allowed_origins" {
   type        = list(string)
   default     = ["http://localhost:5173"]
 }
+
+variable "cognito_issuer" {
+  description = "OIDC issuer URL for the Cognito user pool (from the `auth` module), used by the JWT authorizer."
+  type        = string
+}
+
+variable "cognito_user_pool_client_id" {
+  description = "Cognito app client ID (from the `auth` module) — the JWT authorizer checks this as the token audience."
+  type        = string
+}
