@@ -65,3 +65,19 @@ variable "github_repo" {
   type        = string
   default     = "mungewrath/pappy"
 }
+
+# Immutable owner/repo IDs — needed because this repo was created after
+# GitHub's 2026-07-15 switch to immutable OIDC subject claims (see
+# terraform/modules/cicd/main.tf). Fetch via:
+#   curl -s https://api.github.com/repos/mungewrath/pappy | jq '.owner.id, .id'
+variable "github_owner_id" {
+  description = "Numeric GitHub owner ID for github_repo (`.owner.id` from the GitHub API)."
+  type        = string
+  default     = "3210907"
+}
+
+variable "github_repo_id" {
+  description = "Numeric GitHub repository ID for github_repo (`.id` from the GitHub API)."
+  type        = string
+  default     = "1337259796"
+}

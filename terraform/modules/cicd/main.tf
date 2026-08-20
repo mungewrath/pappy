@@ -6,6 +6,9 @@
 
 locals {
   name_prefix = "${var.project}-cicd"
+
+  github_owner     = split("/", var.github_repo)[0]
+  github_repo_name = split("/", var.github_repo)[1]
 }
 
 resource "aws_iam_openid_connect_provider" "github" {
@@ -23,6 +26,14 @@ resource "aws_iam_openid_connect_provider" "github" {
 # assume this role just by presenting a token with the right audience.
 # Deploys only ever run from pushes to `main` (see .github/workflows), so the
 # trust policy is scoped to exactly that ref rather than the whole repo.
+#
+# Two `sub` formats are accepted because GitHub changed the claim format for
+# repos created after 2026-07-15 (or opted in) to use immutable owner/repo
+# IDs instead of names — mutable names could be freed and reused by someone
+# else, so the plain-name `sub` format is no longer trustworthy on its own
+# for those repos. This repo (created 2026-08-17) gets the immutable format;
+# the mutable format is kept as a fallback in case that ever changes. See
+# https://docs.github.com/en/actions/reference/security/oidc#immutable-subject-claims
 data "aws_iam_policy_document" "github_trust" {
   statement {
     effect  = "Allow"
@@ -42,7 +53,10 @@ data "aws_iam_policy_document" "github_trust" {
     condition {
       test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = ["repo:${var.github_repo}:ref:refs/heads/${var.github_branch}"]
+      values = [
+        "repo:${var.github_repo}:ref:refs/heads/${var.github_branch}",
+        "repo:${local.github_owner}@${var.github_owner_id}/${local.github_repo_name}@${var.github_repo_id}:ref:refs/heads/${var.github_branch}",
+      ]
     }
   }
 }

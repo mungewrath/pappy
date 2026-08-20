@@ -42,6 +42,8 @@ module "frontend" {
 module "cicd" {
   source = "./modules/cicd"
 
-  project     = var.project
-  github_repo = var.github_repo
+  project         = var.project
+  github_repo     = var.github_repo
+  github_owner_id = var.github_owner_id
+  github_repo_id  = var.github_repo_id
 }
