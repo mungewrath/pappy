@@ -4,6 +4,16 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RUN_DIR="$ROOT_DIR/.run"
+DYNAMODB_CONTAINER=pappy-dynamodb-local
+
+stop_dynamodb() {
+    if docker ps --format '{{.Names}}' | grep -qx "$DYNAMODB_CONTAINER"; then
+        docker stop "$DYNAMODB_CONTAINER" >/dev/null
+        echo "dynamodb-local: stopped"
+    else
+        echo "dynamodb-local: not running"
+    fi
+}
 
 stop_one() {
     local name="$1"
@@ -27,3 +37,4 @@ stop_one() {
 
 stop_one backend
 stop_one frontend
+stop_dynamodb

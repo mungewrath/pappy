@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Pappy household payroll manager — API backend"
 requires-python = ">=3.13"
 dependencies = [
+    "boto3>=1.43.77",
     "fastapi>=0.115",
     "mangum>=0.19",
     "pydantic>=2.9",
@@ -11,7 +12,9 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "boto3-stubs[dynamodb]>=1.43.77",
     "httpx>=0.27",
+    "moto>=5.2.2",
     "mypy>=1.13",
     "pytest>=8.3",
     "ruff>=0.7",
