@@ -1,14 +1,9 @@
 # Local dev environment: DynamoDB Local + backend (uvicorn --reload) +
-# frontend (vite). Equivalent to scripts/dev-up.sh, but everything runs in
-# containers so it behaves the same on Linux and macOS (no setsid/nohup).
+# frontend (vite).
 #
 # Up:   docker compose up -d          (add --build after dependency changes)
 # Logs: docker compose logs -f [backend|frontend|dynamodb]
 # Stop: docker compose down           (-v also wipes the local table data)
-#
-# Everything stays bound to 127.0.0.1 — access it by SSH-forwarding the ports
-# (e.g. `ssh -L 5173:localhost:5173 -L 8000:localhost:8000 <host>`) rather
-# than exposing them on the network.
 name: pappy
 
 services:
@@ -17,8 +12,6 @@ services:
     container_name: pappy-dynamodb-local
     restart: unless-stopped
     ports:
-      # Host port 8500 matches the old dev-up.sh setup; container port is the
-      # app's default 8000.
       - "127.0.0.1:8500:8000"
 
   db-init:
@@ -106,7 +99,7 @@ services:
 volumes:
   frontend-node-modules:
 
-# By default DynamoDB Local runs in-memory, like dev-up.sh did — table data
+# By default DynamoDB Local runs in-memory — table data
 # is lost on `docker compose down`. To persist it instead:
 #   dynamodb:
 #     command: -jar DynamoDBLocal.jar -dbPath /home/dynamodblocal/data/
