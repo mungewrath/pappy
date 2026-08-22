@@ -17,9 +17,6 @@ backend/.mypy_cache/
 backend/.ruff_cache/
 backend/*.egg-info/
 
-# Dev server runtime (pid files, logs) from scripts/dev-up.sh
-.run/
-
 # Editor / OS
 .DS_Store
 
