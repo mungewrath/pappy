@@ -7,10 +7,9 @@ breakdown ("shown as two explicit lines rather than one blended figure —
 straight-time hours at the base rate, and the 0.5× premium on overtime hours
 as its own line").
 
-Withholding, net pay, and employer tax accruals (§5.1 steps 2-4) are a
-separate module built on the Pub. 15-T percentage-method engine and
-versioned rate tables (Phase 1 in the implementation plan, §9); they are not
-implemented here.
+Withholding, net pay, and employer tax accruals (§5.1 steps 2-4) are
+computed by `pappy.calc.payroll`, built on `pappy.calc.fit` (the Pub.
+15-T percentage-method engine) and versioned rate tables (§5.2).
 
 **Overtime detection.** A pay run's hour lines cover one workweek. Hours
 categorized `REGULAR` count toward the 40-hour weekly threshold; any excess

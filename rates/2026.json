@@ -1,0 +1,109 @@
+{
+  "tax_year": 2026,
+  "version": 1,
+  "source_notes": "Values verified against: IRS Publication 15-T (2026) percentage-method tables and Worksheet 1A offsets; SSA 2026 contribution and benefit base ($184,500, announced 2025-10-24); IRS Publication 926 (2026) household coverage thresholds ($3,000 FICA cash wages; $1,000 quarterly FUTA); WA ESD/paidleave.wa.gov 2026 PFML premium (1.13%, split 71.43%/28.57%, wage base = SS cap) and WA Cares premium (0.58%, employee-only, no wage cap for 2026); WA ESD 2026 UI taxable wage base ($78,200). Re-verify every value against current publications before relying on this table for a filing season.",
+  "pay_periods_per_year": 52,
+  "fit_standard_offsets": {
+    "SINGLE_OR_MFS": "8600",
+    "MARRIED_JOINTLY": "12900",
+    "HEAD_OF_HOUSEHOLD": "8600"
+  },
+  "federal_income_tax": {
+    "standard": {
+      "MARRIED_JOINTLY": [
+        { "threshold": "0", "upper_bound": "19300", "base_tax": "0.00", "marginal_rate": "0" },
+        { "threshold": "19300", "upper_bound": "44100", "base_tax": "0.00", "marginal_rate": "0.10" },
+        { "threshold": "44100", "upper_bound": "120100", "base_tax": "2480.00", "marginal_rate": "0.12" },
+        { "threshold": "120100", "upper_bound": "230700", "base_tax": "11600.00", "marginal_rate": "0.22" },
+        { "threshold": "230700", "upper_bound": "422850", "base_tax": "35932.00", "marginal_rate": "0.24" },
+        { "threshold": "422850", "upper_bound": "531750", "base_tax": "82048.00", "marginal_rate": "0.32" },
+        { "threshold": "531750", "upper_bound": "788000", "base_tax": "116896.00", "marginal_rate": "0.35" },
+        { "threshold": "788000", "upper_bound": null, "base_tax": "206583.50", "marginal_rate": "0.37" }
+      ],
+      "SINGLE_OR_MFS": [
+        { "threshold": "0", "upper_bound": "7500", "base_tax": "0.00", "marginal_rate": "0" },
+        { "threshold": "7500", "upper_bound": "19900", "base_tax": "0.00", "marginal_rate": "0.10" },
+        { "threshold": "19900", "upper_bound": "57900", "base_tax": "1240.00", "marginal_rate": "0.12" },
+        { "threshold": "57900", "upper_bound": "113200", "base_tax": "5800.00", "marginal_rate": "0.22" },
+        { "threshold": "113200", "upper_bound": "209275", "base_tax": "17966.00", "marginal_rate": "0.24" },
+        { "threshold": "209275", "upper_bound": "263725", "base_tax": "41024.00", "marginal_rate": "0.32" },
+        { "threshold": "263725", "upper_bound": "648100", "base_tax": "58448.00", "marginal_rate": "0.35" },
+        { "threshold": "648100", "upper_bound": null, "base_tax": "192979.25", "marginal_rate": "0.37" }
+      ],
+      "HEAD_OF_HOUSEHOLD": [
+        { "threshold": "0", "upper_bound": "15550", "base_tax": "0.00", "marginal_rate": "0" },
+        { "threshold": "15550", "upper_bound": "33250", "base_tax": "0.00", "marginal_rate": "0.10" },
+        { "threshold": "33250", "upper_bound": "83000", "base_tax": "1770.00", "marginal_rate": "0.12" },
+        { "threshold": "83000", "upper_bound": "121250", "base_tax": "7740.00", "marginal_rate": "0.22" },
+        { "threshold": "121250", "upper_bound": "217300", "base_tax": "16155.00", "marginal_rate": "0.24" },
+        { "threshold": "217300", "upper_bound": "271750", "base_tax": "39207.00", "marginal_rate": "0.32" },
+        { "threshold": "271750", "upper_bound": "656150", "base_tax": "56631.00", "marginal_rate": "0.35" },
+        { "threshold": "656150", "upper_bound": null, "base_tax": "191171.00", "marginal_rate": "0.37" }
+      ]
+    },
+    "step2c_checkbox": {
+      "MARRIED_JOINTLY": [
+        { "threshold": "0", "upper_bound": "16100", "base_tax": "0.00", "marginal_rate": "0" },
+        { "threshold": "16100", "upper_bound": "28500", "base_tax": "0.00", "marginal_rate": "0.10" },
+        { "threshold": "28500", "upper_bound": "66500", "base_tax": "1240.00", "marginal_rate": "0.12" },
+        { "threshold": "66500", "upper_bound": "121800", "base_tax": "5800.00", "marginal_rate": "0.22" },
+        { "threshold": "121800", "upper_bound": "217875", "base_tax": "17966.00", "marginal_rate": "0.24" },
+        { "threshold": "217875", "upper_bound": "272325", "base_tax": "41024.00", "marginal_rate": "0.32" },
+        { "threshold": "272325", "upper_bound": "400450", "base_tax": "58448.00", "marginal_rate": "0.35" },
+        { "threshold": "400450", "upper_bound": null, "base_tax": "103291.75", "marginal_rate": "0.37" }
+      ],
+      "SINGLE_OR_MFS": [
+        { "threshold": "0", "upper_bound": "8050", "base_tax": "0.00", "marginal_rate": "0" },
+        { "threshold": "8050", "upper_bound": "14250", "base_tax": "0.00", "marginal_rate": "0.10" },
+        { "threshold": "14250", "upper_bound": "33250", "base_tax": "620.00", "marginal_rate": "0.12" },
+        { "threshold": "33250", "upper_bound": "60900", "base_tax": "2900.00", "marginal_rate": "0.22" },
+        { "threshold": "60900", "upper_bound": "108938", "base_tax": "8983.00", "marginal_rate": "0.24" },
+        { "threshold": "108938", "upper_bound": "136163", "base_tax": "20512.00", "marginal_rate": "0.32" },
+        { "threshold": "136163", "upper_bound": "328350", "base_tax": "29224.00", "marginal_rate": "0.35" },
+        { "threshold": "328350", "upper_bound": null, "base_tax": "96489.63", "marginal_rate": "0.37" }
+      ],
+      "HEAD_OF_HOUSEHOLD": [
+        { "threshold": "0", "upper_bound": "12075", "base_tax": "0.00", "marginal_rate": "0" },
+        { "threshold": "12075", "upper_bound": "20925", "base_tax": "0.00", "marginal_rate": "0.10" },
+        { "threshold": "20925", "upper_bound": "45800", "base_tax": "885.00", "marginal_rate": "0.12" },
+        { "threshold": "45800", "upper_bound": "64925", "base_tax": "3870.00", "marginal_rate": "0.22" },
+        { "threshold": "64925", "upper_bound": "112950", "base_tax": "8077.50", "marginal_rate": "0.24" },
+        { "threshold": "112950", "upper_bound": "140175", "base_tax": "19603.50", "marginal_rate": "0.32" },
+        { "threshold": "140175", "upper_bound": "332375", "base_tax": "28315.50", "marginal_rate": "0.35" },
+        { "threshold": "332375", "upper_bound": null, "base_tax": "95585.50", "marginal_rate": "0.37" }
+      ]
+    }
+  },
+  "social_security": {
+    "employee_rate": "0.062",
+    "employer_rate": "0.062",
+    "wage_base": "184500"
+  },
+  "medicare": {
+    "rate": "0.0145",
+    "additional_rate": "0.009",
+    "additional_threshold": "200000"
+  },
+  "futa": {
+    "gross_rate": "0.06",
+    "max_state_credit_rate": "0.054",
+    "wage_base": "7000"
+  },
+  "wa_pfml": {
+    "premium_rate": "0.0113",
+    "employee_share": "0.7143",
+    "employer_share": "0.2857",
+    "wage_base": "184500"
+  },
+  "wa_cares": {
+    "premium_rate": "0.0058",
+    "wage_base_cap": null
+  },
+  "wa_ui": {
+    "wage_base": "78200"
+  },
+  "household_coverage": {
+    "fica_cash_wage_threshold": "3000",
+    "futa_quarterly_cash_wage_threshold": "1000"
+  }
+}

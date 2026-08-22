@@ -10,11 +10,23 @@ same table instance.
 from __future__ import annotations
 
 from collections.abc import Iterator
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 from moto import mock_aws
 from mypy_boto3_dynamodb.service_resource import Table
+
+from pappy.models.ratetable import RateTable
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+@pytest.fixture(scope="session")
+def rates_2026() -> RateTable:
+    from pappy.models.ratetable import load_rate_table
+
+    return load_rate_table(REPO_ROOT / "rates" / "2026.json")
 
 
 @pytest.fixture
