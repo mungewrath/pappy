@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 
 from pydantic import BaseModel
 
+from pappy.decimals import StrictDecimal
 from pappy.models.common import Address
 
 
@@ -17,6 +18,11 @@ class EmployerCreate(BaseModel):
     wa_esd_account_number: str | None = None
     ubi: str | None = None
     address: Address
+    # The WA UI experience rate is assigned annually by ESD (design-doc.md
+    # §3.1); it is profile data rather than rate-table data because it is
+    # specific to this employer's account. Until the annual ESD rate notice
+    # is entered, accruals compute at zero.
+    wa_ui_experience_rate: StrictDecimal | None = None
 
 
 class EmployerUpdate(BaseModel):
@@ -27,6 +33,7 @@ class EmployerUpdate(BaseModel):
     wa_esd_account_number: str | None = None
     ubi: str | None = None
     address: Address | None = None
+    wa_ui_experience_rate: StrictDecimal | None = None
 
 
 class Employer(BaseModel):
@@ -41,6 +48,7 @@ class Employer(BaseModel):
     wa_esd_account_number: str | None = None
     ubi: str | None = None
     address: Address
+    wa_ui_experience_rate: StrictDecimal | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -54,6 +62,7 @@ class Employer(BaseModel):
             wa_esd_account_number=data.wa_esd_account_number,
             ubi=data.ubi,
             address=data.address,
+            wa_ui_experience_rate=data.wa_ui_experience_rate,
             created_at=now,
             updated_at=now,
         )

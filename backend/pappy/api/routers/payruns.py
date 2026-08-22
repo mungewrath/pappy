@@ -1,7 +1,8 @@
 """PayRun CRUD + draft lifecycle endpoints, nested under an employer.
 
-Withholding/net pay are not part of the response yet — see
-`pappy.calc.gross` and `pappy.services.payrun_service` module docstrings.
+Draft responses carry gross only; a finalized response also carries the full
+computed payroll result (`payroll`) stored at finalization — see
+`pappy.services.payrun_service.finalize_run`.
 """
 
 from __future__ import annotations
@@ -22,10 +23,6 @@ TableDep = Annotated[Any, Depends(get_table)]
 
 class HourLinesUpdate(BaseModel):
     hour_lines: list[HourLine]
-
-
-class FinalizeRequest(BaseModel):
-    rate_table_version: int | None = None
 
 
 @router.post("/employees/{employee_id}", response_model=PayRun, status_code=201)
@@ -55,11 +52,11 @@ def update_hours(employer_id: str, run_id: str, data: HourLinesUpdate, table: Ta
 
 
 @router.post("/{run_id}/finalize", response_model=PayRun)
-def finalize_payrun(
-    employer_id: str, run_id: str, data: FinalizeRequest, table: TableDep
-) -> PayRun:
-    """Lock the draft. Immutable afterward; corrections go through Adjustment
-    entries (design-doc.md §3.2), not implemented in this pass."""
-    return payrun_service.finalize_run(
-        table, employer_id, run_id, rate_table_version=data.rate_table_version
-    )
+def finalize_payrun(employer_id: str, run_id: str, table: TableDep) -> PayRun:
+    """Compute withholding/net/employer accruals and lock the draft.
+
+    The rate table is resolved server-side for the pay date's tax year, the
+    W-4 in effect on the pay date is required (§5.3), and the run + YTD
+    accumulator advance atomically (§4). Immutable afterward; corrections go
+    through Adjustment entries (design-doc.md §3.2)."""
+    return payrun_service.finalize_run(table, employer_id, run_id)

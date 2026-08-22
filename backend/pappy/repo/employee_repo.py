@@ -54,7 +54,14 @@ def list_for_employer(table: Table, employer_id: str) -> list[Employee]:
         KeyConditionExpression=Key("pk").eq(keys.employer_pk(employer_id))
         & Key("sk").begins_with(keys.employee_sk_prefix())
     )
-    return [_from_item(item) for item in response.get("Items", [])]
+    # W-4 elections nest under `EMPLOYEE#<empId>#W4#<date>` (§4) and share
+    # the partition, so they match this query's prefix — filter them out.
+    employees = []
+    for item in response.get("Items", []):
+        sk = item.get("sk")
+        if isinstance(sk, str) and "#W4#" not in sk:
+            employees.append(_from_item(item))
+    return employees
 
 
 def delete(table: Table, employer_id: str, employee_id: str) -> None:

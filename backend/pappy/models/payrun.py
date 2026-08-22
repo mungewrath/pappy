@@ -1,10 +1,11 @@
 """PayRun and HourLine entities (design-doc.md §3.1, §3.2).
 
-This module intentionally stops at *gross* pay and the overtime-premium
-breakdown (design-doc.md §5.4). Withholding, net pay, and employer accruals
-are computed by `pappy.calc.payroll` from the Pub. 15-T engine and the
-versioned rate tables (design-doc.md §5.1 steps 2-4, Phase 1); wiring that
-result into finalize is Phase 2 work — see `PayRun.finalize`.
+A DRAFT run carries only gross pay and the overtime-premium breakdown
+(design-doc.md §5.4), recomputed on every hour-line edit. At finalization the
+full withholding/net/employer-accrual result from `pappy.calc.payroll`
+(§5.1 steps 2-4) is computed once and stored on the run together with the
+rate-table version used (§5.2: "compute once, store the result") — after that
+the run is immutable.
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ from datetime import UTC, date, datetime
 from pydantic import BaseModel, Field, model_validator
 
 from pappy.calc.gross import GrossPayResult, compute_gross_pay
+from pappy.calc.payroll import PayrollResult
 from pappy.decimals import StrictDecimal
 from pappy.models.common import HourCategory, OvertimePolicy, PayRunStatus
 
@@ -74,6 +76,7 @@ class PayRun(BaseModel):
     pay_date: date
     hour_lines: list[HourLine] = []
     gross: GrossPayResult
+    payroll: PayrollResult | None = None
     rate_table_version: int | None = None
     created_at: datetime
     updated_at: datetime
@@ -134,19 +137,19 @@ class PayRun(BaseModel):
             }
         )
 
-    def finalize(self, *, rate_table_version: int) -> PayRun:
-        """Transition DRAFT -> FINALIZED.
+    def finalize(self, *, rate_table_version: int, payroll: PayrollResult) -> PayRun:
+        """Transition DRAFT -> FINALIZED, storing the computed payroll result.
 
-        NOTE: this records gross pay and the rate-table version, but does not
-        yet store withholding/net/employer accruals — those come from
-        `pappy.calc.payroll` and are wired into finalize in Phase 2. The
-        transaction that also advances YTD accumulators (design-doc.md §4)
-        lives in the repo layer, not here.
+        The full computation and the rate-table version are recorded here
+        (design principle 3, "compute once, store the result"); the
+        transaction that also advances the YTD accumulator (design-doc.md §4)
+        lives in the repo layer.
         """
         now = datetime.now(UTC)
         return self.model_copy(
             update={
                 "status": PayRunStatus.FINALIZED,
+                "payroll": payroll,
                 "rate_table_version": rate_table_version,
                 "finalized_at": now,
                 "updated_at": now,

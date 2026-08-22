@@ -5,10 +5,10 @@ is append-only. `put_draft` and `finalize` enforce that with conditional
 writes rather than trusting the caller:
 
 - `put_draft` (create or edit) fails if an item exists in a non-DRAFT state.
-- `finalize` fails unless the stored item is still DRAFT (a version of the
-  "one `TransactWriteItems` with a condition that the run is still DRAFT"
-  pattern the design doc calls for — the YTD-accumulator half of that
-  transaction is future work, see `PayRun.finalize`'s docstring).
+- `finalize` is one `TransactWriteItems` (§4) that writes the finalized run
+  *and* advances the YTD accumulator atomically, conditioned on the run
+  still being DRAFT — so a run can never be finalized twice, and wage-base
+  accumulators can never be double-counted.
 """
 
 from __future__ import annotations
@@ -17,15 +17,22 @@ from datetime import date
 from typing import TYPE_CHECKING, Any
 
 from boto3.dynamodb.conditions import Attr, Key
+from boto3.dynamodb.types import TypeSerializer
 from botocore.exceptions import ClientError
 
 if TYPE_CHECKING:
     from mypy_boto3_dynamodb.service_resource import Table
+    from mypy_boto3_dynamodb.type_defs import TransactWriteItemTypeDef
 
+from pappy.calc.payroll import PayrollResult
 from pappy.models.common import PayRunStatus
 from pappy.models.payrun import PayRun
-from pappy.repo import keys
+from pappy.models.ytd import YtdAccumulator
+from pappy.repo import keys, ytd_repo
 from pappy.repo.exceptions import InvalidStateError, NotFoundError
+from pappy.repo.table import get_client
+
+_SERIALIZER = TypeSerializer()
 
 
 def _to_item(run: PayRun) -> dict[str, Any]:
@@ -108,25 +115,70 @@ def save_draft(table: Table, run: PayRun) -> PayRun:
     return run
 
 
-def finalize(table: Table, run: PayRun, *, rate_table_version: int) -> PayRun:
-    """Transition a DRAFT run to FINALIZED with a conditional write.
+def finalize(
+    table: Table,
+    run: PayRun,
+    *,
+    rate_table_version: int,
+    payroll: PayrollResult,
+    tax_year: int,
+    prior_ytd: YtdAccumulator | None,
+) -> tuple[PayRun, YtdAccumulator]:
+    """Transition a DRAFT run to FINALIZED in one transaction (design-doc.md §4).
 
-    NOTE: design-doc.md §4 specifies this as one `TransactWriteItems` call
-    that also advances the YTD accumulator item. That accumulator item isn't
-    modeled yet (it belongs with the withholding engine); this function only
-    performs the PayRun half, guarded by the same DRAFT-only condition so the
-    transactional version can be dropped in later without changing callers.
+    Writes two items atomically:
+
+    1. the finalized `PAYRUN` item — `Put`, conditioned on the stored run
+       still being DRAFT;
+    2. the `YTD` accumulator update — the run's capped wage slices ADDed to
+       the year's totals.
+
+    If any part fails (in particular, a concurrent finalization won the
+    DRAFT condition), the whole transaction rolls back and neither the run
+    nor the accumulator moves — the double-count is structurally impossible,
+    not merely discouraged.
+
+    Returns the finalized run and the post-write accumulator value (computed
+    from `prior_ytd`, mirroring exactly what the transaction's ADD clauses
+    applied).
     """
-    finalized = run.finalize(rate_table_version=rate_table_version)
+    finalized = run.finalize(rate_table_version=rate_table_version, payroll=payroll)
+    base = prior_ytd if prior_ytd is not None else _empty_ytd(run, tax_year)
+    new_ytd = base.apply_taxable(payroll.taxable)
+    # The transaction ADDs only this run's capped slices — never the merged
+    # totals, which would double-count everything already accumulated.
+    delta = _empty_ytd(run, tax_year).apply_taxable(payroll.taxable)
+
+    put_op: TransactWriteItemTypeDef = {
+        "Put": {
+            "TableName": table.name,
+            "Item": _SERIALIZER.serialize(_to_item(finalized))["M"],
+            "ConditionExpression": "#status = :draft",
+            "ExpressionAttributeNames": {"#status": "status"},
+            "ExpressionAttributeValues": {":draft": {"S": PayRunStatus.DRAFT.value}},
+        }
+    }
+    update_op: TransactWriteItemTypeDef = ytd_repo.transact_update_item(
+        table, run.employer_id, run.employee_id, tax_year, delta=delta
+    )
     try:
-        table.put_item(
-            Item=_to_item(finalized),
-            ConditionExpression=Attr("status").eq(PayRunStatus.DRAFT.value),
-        )
+        # A directly-built low-level client rather than `table.meta.client` —
+        # identical wire format against real DynamoDB/DynamoDB Local, and it
+        # avoids a moto quirk with resource-bound clients in tests.
+        client = get_client()
+        client.transact_write_items(TransactItems=[put_op, update_op])
     except ClientError as exc:
-        if exc.response["Error"]["Code"] == "ConditionalCheckFailedException":
+        if exc.response["Error"]["Code"] == "TransactionCanceledException":
             raise InvalidStateError(
                 f"PayRun is not a draft, cannot finalize: {run.run_id}"
             ) from exc
         raise
-    return finalized
+    return finalized, new_ytd
+
+
+def _empty_ytd(run: PayRun, tax_year: int) -> YtdAccumulator:
+    return YtdAccumulator(
+        employer_id=run.employer_id,
+        employee_id=run.employee_id,
+        tax_year=tax_year,
+    )

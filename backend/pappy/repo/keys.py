@@ -1,14 +1,22 @@
 """Single-table key construction (design-doc.md §4).
 
-    | Entity   | PK                  | SK                              |
-    |----------|---------------------|---------------------------------|
-    | Employer | EMPLOYER#<id>       | PROFILE                         |
-    | Employee | EMPLOYER#<id>       | EMPLOYEE#<empId>                |
-    | PayRun   | EMPLOYER#<id>       | PAYRUN#<payDate>#<runId>        |
+    | Entity   | PK                  | SK                                    |
+    |----------|---------------------|---------------------------------------|
+    | Employer | EMPLOYER#<id>       | PROFILE                               |
+    | Employee | EMPLOYER#<id>       | EMPLOYEE#<empId>                      |
+    | W-4 election | EMPLOYER#<id>   | EMPLOYEE#<empId>#W4#<effectiveDate>   |
+    | PayRun   | EMPLOYER#<id>       | PAYRUN#<payDate>#<runId>              |
+    | YTD accumulator | EMPLOYER#<id> | YTD#<taxYear>#<empId>                |
+    | RateTable | RATES#<taxYear>    | VERSION#<n>                           |
 
 Sort keys are date-prefixed and zero-padded ISO (`date.isoformat()` already
 sorts correctly), so "all pay runs in 2026" is a single `Query` with a
 `begins_with` condition, and no GSI is needed at this scale.
+
+Note the W-4 SK nests under the employee's SK prefix, so an employee's
+elections are one `Query` — but `EMPLOYEE#` alone no longer matches only
+employee items; `employee_repo.list_for_employer` filters the nested
+elections out.
 """
 
 from __future__ import annotations
@@ -32,6 +40,14 @@ def employee_sk_prefix() -> str:
     return "EMPLOYEE#"
 
 
+def w4_sk(employee_id: str, effective_date: date) -> str:
+    return f"{employee_sk(employee_id)}#W4#{effective_date.isoformat()}"
+
+
+def w4_sk_prefix(employee_id: str) -> str:
+    return f"{employee_sk(employee_id)}#W4#"
+
+
 def payrun_sk(pay_date: date, run_id: str) -> str:
     return f"PAYRUN#{pay_date.isoformat()}#{run_id}"
 
@@ -40,3 +56,15 @@ def payrun_sk_prefix(year: int | None = None) -> str:
     if year is None:
         return "PAYRUN#"
     return f"PAYRUN#{year:04d}-"
+
+
+def ytd_sk(tax_year: int, employee_id: str) -> str:
+    return f"YTD#{tax_year:04d}#{employee_id}"
+
+
+def rates_pk(tax_year: int) -> str:
+    return f"RATES#{tax_year:04d}"
+
+
+def rates_version_sk(version: int) -> str:
+    return f"VERSION#{version:04d}"

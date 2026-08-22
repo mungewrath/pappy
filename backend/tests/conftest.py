@@ -41,6 +41,15 @@ def dynamodb_table() -> Iterator[Table]:
 
 
 @pytest.fixture
+def seeded_rates(dynamodb_table: Table, rates_2026: RateTable) -> RateTable:
+    """The 2026 rate table stored in the (moto) table under `RATES#2026`."""
+    from pappy.repo import rate_table_repo
+
+    rate_table_repo.put_if_absent(dynamodb_table, rates_2026)
+    return rates_2026
+
+
+@pytest.fixture
 def client(dynamodb_table: Table) -> Iterator[TestClient]:
     from pappy.api.app import app
     from pappy.api.deps import get_table

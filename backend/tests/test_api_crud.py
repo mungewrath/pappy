@@ -118,11 +118,21 @@ def test_employee_create_requires_existing_employer(client: TestClient) -> None:
     assert response.status_code == 404
 
 
-def test_payrun_lifecycle_draft_edit_finalize(client: TestClient) -> None:
+def test_payrun_lifecycle_draft_edit_finalize(client: TestClient, seeded_rates: object) -> None:
     employer = _create_employer(client)
     employer_id = employer["employer_id"]
     employee = _create_employee(client, employer_id)
     employee_id = employee["employee_id"]
+
+    # a W-4 election is required input for finalization (design-doc.md §5.3)
+    w4 = client.post(
+        f"/employers/{employer_id}/employees/{employee_id}/w4",
+        json={"effective_date": "2026-01-01", "filing_status": "SINGLE_OR_MFS"},
+    )
+    assert w4.status_code == 201, w4.text
+    listed_w4 = client.get(f"/employers/{employer_id}/employees/{employee_id}/w4")
+    assert listed_w4.status_code == 200
+    assert len(listed_w4.json()) == 1
 
     created = client.post(
         f"/employers/{employer_id}/payruns/employees/{employee_id}",
@@ -141,6 +151,7 @@ def test_payrun_lifecycle_draft_edit_finalize(client: TestClient) -> None:
     assert run["gross"]["regular_hours"] == "45"
     assert run["gross"]["overtime_hours"] == "5"
     assert run["gross"]["gross"] == "1187.50"
+    assert run["payroll"] is None
 
     listed = client.get(f"/employers/{employer_id}/payruns")
     assert listed.status_code == 200
@@ -166,11 +177,22 @@ def test_payrun_lifecycle_draft_edit_finalize(client: TestClient) -> None:
 
     finalized = client.post(
         f"/employers/{employer_id}/payruns/{run_id}/finalize",
-        json={"rate_table_version": 1},
+        json={},
     )
     assert finalized.status_code == 200, finalized.text
-    assert finalized.json()["status"] == "FINALIZED"
-    assert finalized.json()["rate_table_version"] == 1
+    body = finalized.json()
+    assert body["status"] == "FINALIZED"
+    # rate table version resolved server-side from RATES#2026
+    assert body["rate_table_version"] == 1
+    payroll = body["payroll"]
+    assert payroll is not None
+    # $400 gross: SS $24.80, Medicare $5.80, FIT ($20,800 annualized less the
+    # $8,600 offset -> $12,200 -> 10% bracket above $7,500 = $470/yr ->
+    # $9.04), PFML $3.23, WA Cares $2.32; net = $354.81
+    assert payroll["withholding"]["social_security"] == "24.80"
+    assert payroll["withholding"]["medicare"] == "5.80"
+    assert payroll["withholding"]["federal_income_tax"] == "9.04"
+    assert payroll["net_pay"] == "354.81"
 
     # can no longer edit hours on a finalized run
     blocked = client.put(
@@ -182,6 +204,53 @@ def test_payrun_lifecycle_draft_edit_finalize(client: TestClient) -> None:
     # can't finalize twice
     blocked_again = client.post(f"/employers/{employer_id}/payruns/{run_id}/finalize", json={})
     assert blocked_again.status_code == 409
+
+
+def test_finalize_without_w4_is_blocked(client: TestClient, seeded_rates: object) -> None:
+    employer = _create_employer(client)
+    employer_id = employer["employer_id"]
+    employee = _create_employee(client, employer_id)
+    employee_id = employee["employee_id"]
+
+    created = client.post(
+        f"/employers/{employer_id}/payruns/employees/{employee_id}",
+        json={
+            "period_start": "2026-01-05",
+            "period_end": "2026-01-11",
+            "pay_date": "2026-01-16",
+        },
+    )
+    assert created.status_code == 201
+    run_id = created.json()["run_id"]
+
+    blocked = client.post(f"/employers/{employer_id}/payruns/{run_id}/finalize", json={})
+    assert blocked.status_code == 409
+    assert "W-4" in blocked.json()["detail"]
+
+
+def test_finalize_without_rate_table_is_blocked(client: TestClient) -> None:
+    employer = _create_employer(client)
+    employer_id = employer["employer_id"]
+    employee = _create_employee(client, employer_id)
+    employee_id = employee["employee_id"]
+    client.post(
+        f"/employers/{employer_id}/employees/{employee_id}/w4",
+        json={"effective_date": "2026-01-01"},
+    )
+
+    created = client.post(
+        f"/employers/{employer_id}/payruns/employees/{employee_id}",
+        json={
+            "period_start": "2026-01-05",
+            "period_end": "2026-01-11",
+            "pay_date": "2026-01-16",
+        },
+    )
+    assert created.status_code == 201
+    run_id = created.json()["run_id"]
+
+    blocked = client.post(f"/employers/{employer_id}/payruns/{run_id}/finalize", json={})
+    assert blocked.status_code == 404
 
 
 def test_payrun_create_with_explicit_hours(client: TestClient) -> None:

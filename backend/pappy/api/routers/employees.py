@@ -1,4 +1,4 @@
-"""Employee CRUD endpoints, nested under an employer."""
+"""Employee CRUD + W-4 election endpoints, nested under an employer."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends
 
 from pappy.api.deps import get_table
 from pappy.models.employee import Employee, EmployeeCreate, EmployeeUpdate
+from pappy.models.w4 import W4Election
 from pappy.services import employee_service
 
 router = APIRouter(prefix="/employers/{employer_id}/employees", tags=["employees"])
@@ -40,3 +41,18 @@ def update_employee(
 @router.delete("/{employee_id}", status_code=204)
 def delete_employee(employer_id: str, employee_id: str, table: TableDep) -> None:
     employee_service.delete_employee(table, employer_id, employee_id)
+
+
+@router.post("/{employee_id}/w4", response_model=W4Election, status_code=201)
+def add_w4_election(
+    employer_id: str, employee_id: str, data: W4Election, table: TableDep
+) -> W4Election:
+    """Record an effective-dated W-4 election (design-doc.md §5.3). A pay run
+    resolves the election in effect on its pay date, so a mid-year re-election
+    never rewrites earlier finalized runs."""
+    return employee_service.add_w4_election(table, employer_id, employee_id, data)
+
+
+@router.get("/{employee_id}/w4", response_model=list[W4Election])
+def list_w4_elections(employer_id: str, employee_id: str, table: TableDep) -> list[W4Election]:
+    return employee_service.list_w4_elections(table, employer_id, employee_id)
