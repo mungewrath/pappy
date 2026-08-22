@@ -1,0 +1,19 @@
+# Dev image for the frontend (used by compose.yaml). Not for production.
+#
+# Dependencies are baked into /app/node_modules at build time. At runtime,
+# compose.yaml mounts a named volume over /app/node_modules initialized from
+# this layer, so host-installed node_modules never leak native binaries
+# (esbuild/rollup) built for the wrong platform into the container.
+FROM node:24-bookworm-slim
+
+ENV NODE_ENV=development
+
+WORKDIR /app
+
+COPY package.json package-lock.json ./
+RUN npm ci --no-audit --no-fund \
+ && cat package.json package-lock.json \
+    | sha256sum | cut -d' ' -f1 >node_modules/.pappy-install-stamp
+
+COPY docker-entrypoint.dev.sh /usr/local/bin/docker-entrypoint.dev.sh
+ENTRYPOINT ["docker-entrypoint.dev.sh"]

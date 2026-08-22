@@ -1,0 +1,20 @@
+# Dev image for the backend (used by compose.yaml). Not for production.
+#
+# The project venv lives in /opt/venv — outside /app — so the source
+# bind-mount in compose.yaml never shadows it. Dependencies are baked in at
+# build time; `uv run` at container start re-syncs (usually a no-op, and fast
+# thanks to the baked uv cache) so edits to pyproject.toml are picked up on
+# restart without a rebuild.
+FROM ghcr.io/astral-sh/uv:python3.13-bookworm-slim
+
+ENV UV_PROJECT_ENVIRONMENT=/opt/venv \
+    UV_FROZEN=1 \
+    UV_LINK_MODE=copy
+
+WORKDIR /app
+
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-install-project
+
+COPY pappy ./pappy
+RUN uv sync --frozen

@@ -1,0 +1,115 @@
+# Local dev environment: DynamoDB Local + backend (uvicorn --reload) +
+# frontend (vite). Equivalent to scripts/dev-up.sh, but everything runs in
+# containers so it behaves the same on Linux and macOS (no setsid/nohup).
+#
+# Up:   docker compose up -d          (add --build after dependency changes)
+# Logs: docker compose logs -f [backend|frontend|dynamodb]
+# Stop: docker compose down           (-v also wipes the local table data)
+#
+# Everything stays bound to 127.0.0.1 — access it by SSH-forwarding the ports
+# (e.g. `ssh -L 5173:localhost:5173 -L 8000:localhost:8000 <host>`) rather
+# than exposing them on the network.
+name: pappy
+
+services:
+  dynamodb:
+    image: amazon/dynamodb-local:latest
+    container_name: pappy-dynamodb-local
+    restart: unless-stopped
+    ports:
+      # Host port 8500 matches the old dev-up.sh setup; container port is the
+      # app's default 8000.
+      - "127.0.0.1:8500:8000"
+
+  db-init:
+    # One-shot: waits for dynamodb, then creates the `pappy` single table.
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+    container_name: pappy-db-init
+    environment: &backend-env
+      PAPPY_DYNAMODB_ENDPOINT_URL: http://dynamodb:8000
+      AWS_ACCESS_KEY_ID: local
+      AWS_SECRET_ACCESS_KEY: local
+      AWS_REGION: us-west-2
+    depends_on:
+      - dynamodb
+    command:
+      - sh
+      - -ec
+      - |
+        i=0
+        until uv run python -c 'from pappy.repo.table import create_table_if_not_exists as c; c()' 2>/tmp/db-init.err; do
+          i=$$((i+1))
+          if [ "$$i" -ge 60 ]; then
+            cat /tmp/db-init.err
+            echo "db-init: dynamodb-local unreachable" >&2
+            exit 1
+          fi
+          sleep 1
+        done
+        echo "db-init: pappy table ready"
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+    container_name: pappy-backend
+    restart: unless-stopped
+    init: true
+    environment: *backend-env
+    depends_on:
+      dynamodb:
+        condition: service_started
+      db-init:
+        condition: service_completed_successfully
+    command:
+      - uv
+      - run
+      - uvicorn
+      - pappy.api.app:app
+      - --reload
+      - --host=0.0.0.0
+      - --port=8000
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      # Bind-mount the source for hot reload (--reload). The venv lives in
+      # /opt/venv (see Dockerfile.dev) so it is not shadowed by this mount.
+      - ./backend:/app
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    container_name: pappy-frontend
+    restart: unless-stopped
+    init: true
+    depends_on:
+      - backend
+    command:
+      - npm
+      - run
+      - dev
+      - --
+      - --host=0.0.0.0
+      - --port=5173
+    ports:
+      - "127.0.0.1:5173:5173"
+    volumes:
+      # Source bind mount for HMR; node_modules comes from the image via a
+      # named volume so host/container native binaries never clash. The
+      # entrypoint runs npm ci automatically if package.json/lock change.
+      - ./frontend:/app
+      - frontend-node-modules:/app/node_modules
+
+volumes:
+  frontend-node-modules:
+
+# By default DynamoDB Local runs in-memory, like dev-up.sh did — table data
+# is lost on `docker compose down`. To persist it instead:
+#   dynamodb:
+#     command: -jar DynamoDBLocal.jar -dbPath /home/dynamodblocal/data/
+#     volumes:
+#       - dynamodb-data:/home/dynamodblocal/data/
+#   ...and move `dynamodb-data:` into the `volumes:` block above.
