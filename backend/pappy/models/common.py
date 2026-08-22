@@ -36,6 +36,19 @@ class OvertimePolicy(str, Enum):
     EXEMPT = "EXEMPT"
 
 
+class FilingStatus(str, Enum):
+    """Federal filing status from W-4 Step 1(c).
+
+    Pub. 15-T publishes exactly three withholding rate schedules; "Single"
+    and "Married Filing Separately" share one schedule, so they are one
+    value here (2026 Publication 15-T, Percentage Method Tables).
+    """
+
+    SINGLE_OR_MFS = "SINGLE_OR_MFS"
+    MARRIED_JOINTLY = "MARRIED_JOINTLY"
+    HEAD_OF_HOUSEHOLD = "HEAD_OF_HOUSEHOLD"
+
+
 class PayRunStatus(str, Enum):
     """Pay run lifecycle state (design-doc.md §3.2)."""
 

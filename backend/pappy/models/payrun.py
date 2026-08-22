@@ -2,9 +2,9 @@
 
 This module intentionally stops at *gross* pay and the overtime-premium
 breakdown (design-doc.md §5.4). Withholding, net pay, and employer accruals
-require the Pub. 15-T calculation engine and versioned rate tables
-(design-doc.md §5.1 steps 2-4, Phase 1) and are out of scope for this pass —
-see `PayRun.finalize` for where that will plug in.
+are computed by `pappy.calc.payroll` from the Pub. 15-T engine and the
+versioned rate tables (design-doc.md §5.1 steps 2-4, Phase 1); wiring that
+result into finalize is Phase 2 work — see `PayRun.finalize`.
 """
 
 from __future__ import annotations
@@ -138,10 +138,10 @@ class PayRun(BaseModel):
         """Transition DRAFT -> FINALIZED.
 
         NOTE: this records gross pay and the rate-table version, but does not
-        yet compute withholding/net/employer accruals — that requires the
-        Phase 1 calculation engine (see module docstring). The transaction
-        that also advances YTD accumulators (design-doc.md §4) lives in the
-        repo layer, not here.
+        yet store withholding/net/employer accruals — those come from
+        `pappy.calc.payroll` and are wired into finalize in Phase 2. The
+        transaction that also advances YTD accumulators (design-doc.md §4)
+        lives in the repo layer, not here.
         """
         now = datetime.now(UTC)
         return self.model_copy(
