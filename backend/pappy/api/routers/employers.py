@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends
-from mypy_boto3_dynamodb.service_resource import Table
 
 from pappy.api.deps import get_table
 from pappy.models.employer import Employer, EmployerCreate, EmployerUpdate
@@ -13,7 +12,7 @@ from pappy.services import employer_service
 
 router = APIRouter(prefix="/employers", tags=["employers"])
 
-TableDep = Annotated[Table, Depends(get_table)]
+TableDep = Annotated[Any, Depends(get_table)]
 
 
 @router.post("", response_model=Employer, status_code=201)

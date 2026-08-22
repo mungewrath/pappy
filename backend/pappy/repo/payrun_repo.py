@@ -14,11 +14,13 @@ writes rather than trusting the caller:
 from __future__ import annotations
 
 from datetime import date
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from boto3.dynamodb.conditions import Attr, Key
 from botocore.exceptions import ClientError
-from mypy_boto3_dynamodb.service_resource import Table
+
+if TYPE_CHECKING:
+    from mypy_boto3_dynamodb.service_resource import Table
 
 from pappy.models.common import PayRunStatus
 from pappy.models.payrun import PayRun

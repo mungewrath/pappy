@@ -7,6 +7,8 @@ by Mangum for Lambda (see `pappy.api.handler`).
 
 from __future__ import annotations
 
+import os
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -16,12 +18,13 @@ from pappy.api.routers import employees, employers, payruns
 
 app = FastAPI(title="Pappy API", version="0.1.0")
 
-# Local dev only: allow the Vite dev server to call this API directly.
-# Once deployed, the SPA and API are same-origin behind CloudFront (or the
-# API Gateway domain is added explicitly) and this can be tightened.
+cors_allowed_origins = os.environ.get(
+    "PAPPY_CORS_ALLOWED_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173"
+).split(",")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=cors_allowed_origins,
     allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE"],
     allow_headers=["Authorization", "Content-Type"],
 )

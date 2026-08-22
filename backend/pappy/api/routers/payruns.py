@@ -6,10 +6,9 @@ Withholding/net pay are not part of the response yet — see
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends
-from mypy_boto3_dynamodb.service_resource import Table
 from pydantic import BaseModel
 
 from pappy.api.deps import get_table
@@ -18,7 +17,7 @@ from pappy.services import payrun_service
 
 router = APIRouter(prefix="/employers/{employer_id}/payruns", tags=["payruns"])
 
-TableDep = Annotated[Table, Depends(get_table)]
+TableDep = Annotated[Any, Depends(get_table)]
 
 
 class HourLinesUpdate(BaseModel):

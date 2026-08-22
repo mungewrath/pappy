@@ -10,8 +10,10 @@ from __future__ import annotations
 
 import uuid
 from datetime import date, timedelta
+from typing import TYPE_CHECKING
 
-from mypy_boto3_dynamodb.service_resource import Table
+if TYPE_CHECKING:
+    from mypy_boto3_dynamodb.service_resource import Table
 
 from pappy.models.common import PayRunStatus
 from pappy.models.employee import DefaultScheduleLine

@@ -1,6 +1,5 @@
 # Phase 0 (§9): prove the zero-cost, authenticated path end to end with a
-# hello-world API and an SPA shell. The DynamoDB data table lands in a later
-# phase — see terraform/modules/data, scaffolded but not yet wired in.
+# API and SPA deployment, with the DynamoDB table used by the CRUD endpoints.
 
 module "auth" {
   source = "./modules/auth"
@@ -20,9 +19,18 @@ module "api" {
   environment                 = var.environment
   lambda_artifact_path        = var.api_lambda_artifact_path
   log_retention_days          = var.log_retention_days
+  table_arn                   = module.data.table_arn
+  table_name                  = module.data.table_name
   cors_allowed_origins        = ["https://${module.frontend.cloudfront_domain_name}", "http://localhost:5173"]
   cognito_issuer              = module.auth.issuer
   cognito_user_pool_client_id = module.auth.user_pool_client_id
+}
+
+module "data" {
+  source = "./modules/data"
+
+  project     = var.project
+  environment = var.environment
 }
 
 module "frontend" {

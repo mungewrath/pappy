@@ -16,10 +16,13 @@ deployed environments the table is created by Terraform
 from __future__ import annotations
 
 import os
+from typing import TYPE_CHECKING
 
 import boto3
 from botocore.exceptions import ClientError
-from mypy_boto3_dynamodb.service_resource import DynamoDBServiceResource, Table
+
+if TYPE_CHECKING:
+    from mypy_boto3_dynamodb.service_resource import DynamoDBServiceResource, Table
 
 DEFAULT_TABLE_NAME = "pappy"
 

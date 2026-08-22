@@ -18,6 +18,16 @@ variable "log_retention_days" {
   type        = number
 }
 
+variable "table_arn" {
+  description = "ARN of the DynamoDB table used by the API."
+  type        = string
+}
+
+variable "table_name" {
+  description = "Name of the DynamoDB table used by the API."
+  type        = string
+}
+
 variable "cors_allowed_origins" {
   description = "Origins allowed to call the HTTP API (the SPA's CloudFront domain, plus localhost for dev)."
   type        = list(string)

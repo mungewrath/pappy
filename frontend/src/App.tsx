@@ -1,15 +1,28 @@
 import { useEffect, useState } from 'react';
 import type { User } from 'oidc-client-ts';
 import { getHello } from './api/client';
+import { clearStoredEmployerId, loadStoredEmployerId } from './api/employerStorage';
+import { Onboarding } from './components/Onboarding';
+import { EmployeesPanel } from './components/EmployeesPanel';
+import { EmployerPanel } from './components/EmployerPanel';
+import { PayRunsPanel } from './components/PayRunsPanel';
 import { getUser, handleRedirectCallback, isAuthConfigured, isSigninRedirect, login, logout } from './auth/cognito';
-import './index.css';
 
 type HelloState = { status: 'loading' } | { status: 'ok'; message: string } | { status: 'error'; message: string };
 type AuthState = { status: 'loading' } | { status: 'signed-out' } | { status: 'signed-in'; user: User };
+type Tab = 'payruns' | 'employees' | 'employer';
+
+const TABS: { id: Tab; label: string }[] = [
+  { id: 'payruns', label: 'Pay runs' },
+  { id: 'employees', label: 'Employees' },
+  { id: 'employer', label: 'Employer' },
+];
 
 function App() {
   const [hello, setHello] = useState<HelloState>({ status: 'loading' });
   const [auth, setAuth] = useState<AuthState>({ status: 'loading' });
+  const [employerId, setEmployerId] = useState<string | null>(loadStoredEmployerId());
+  const [tab, setTab] = useState<Tab>('payruns');
 
   useEffect(() => {
     if (!isAuthConfigured()) {
@@ -43,13 +56,31 @@ function App() {
 
   return (
     <>
-      <h1>Pappy</h1>
-      <p>Household payroll manager.</p>
+      <header className="app-header">
+        <h1>Pappy</h1>
+        {auth.status === 'signed-in' && (
+          <p className="who">
+            Signed in as <code>{auth.user.profile.email}</code>{' '}
+            <button type="button" className="link" onClick={() => void logout()}>
+              Sign out
+            </button>
+            {' · '}
+            <span className={`api-dot ${hello.status === 'ok' ? 'ok' : hello.status === 'error' ? 'error' : ''}`}>
+              {hello.status === 'ok'
+                ? 'API connected'
+                : hello.status === 'error'
+                  ? 'API unreachable'
+                  : 'Checking API…'}
+            </span>
+          </p>
+        )}
+      </header>
 
       {auth.status === 'loading' && <p>Loading…</p>}
 
       {auth.status === 'signed-out' && (
-        <p>
+        <div className="card">
+          <p>Household payroll manager.</p>
           <button
             type="button"
             disabled={!isAuthConfigured()}
@@ -59,40 +90,53 @@ function App() {
             Sign in
           </button>
           {!isAuthConfigured() && (
-            <>
-              <br />
-              <small>Set VITE_COGNITO_* env vars — see .env.example</small>
-            </>
+            <p className="muted">
+              Set <code>VITE_COGNITO_*</code> env vars — see <code>.env.example</code>
+            </p>
           )}
-        </p>
+          {hello.status === 'error' && (
+            <p className="muted">
+              Backend check failed: <code>{hello.message}</code>
+            </p>
+          )}
+        </div>
       )}
 
-      {auth.status === 'signed-in' && (
+      {auth.status === 'signed-in' && !employerId && (
+        <Onboarding onReady={setEmployerId} />
+      )}
+
+      {auth.status === 'signed-in' && employerId && (
         <>
-          <p>
-            Signed in as <code>{auth.user.profile.email}</code>{' '}
-            <button type="button" onClick={() => void logout()}>
-              Sign out
-            </button>
-          </p>
+          <nav className="tabs" aria-label="Sections">
+            {TABS.map(({ id, label }) => (
+              <button
+                key={id}
+                type="button"
+                className={tab === id ? 'tab active' : 'tab'}
+                onClick={() => setTab(id)}
+              >
+                {label}
+              </button>
+            ))}
+          </nav>
 
-          <p>
-            SPA shell calling <code>GET /hello</code>.
-          </p>
-
-          <div className={`status ${hello.status === 'error' ? 'error' : 'ok'}`}>
-            {hello.status === 'loading' && 'Calling backend…'}
-            {hello.status === 'ok' && hello.message}
-            {hello.status === 'error' && (
-              <>
-                Could not reach the API: <code>{hello.message}</code>
-                <br />
-                Is the backend running? See <code>backend/README.md</code>.
-              </>
-            )}
-          </div>
+          {tab === 'payruns' && <PayRunsPanel key="payruns" employerId={employerId} />}
+          {tab === 'employees' && <EmployeesPanel key="employees" employerId={employerId} />}
+          {tab === 'employer' && (
+            <EmployerPanel
+              onSwitch={() => {
+                clearStoredEmployerId();
+                setEmployerId(null);
+              }}
+            />
+          )}
         </>
       )}
+
+      <footer className="app-footer muted">
+        Pay stubs, withholding, and year-end artifacts arrive in later phases (design-doc.md §9).
+      </footer>
     </>
   );
 }

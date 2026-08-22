@@ -22,3 +22,5 @@ backend/*.egg-info/
 
 # Editor / OS
 .DS_Store
+
+**/.env

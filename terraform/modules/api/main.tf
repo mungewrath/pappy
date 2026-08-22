@@ -30,6 +30,25 @@ resource "aws_iam_role_policy_attachment" "lambda_basic_logs" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
+resource "aws_iam_role_policy" "lambda_dynamodb" {
+  name = "${local.name_prefix}-api-dynamodb"
+  role = aws_iam_role.lambda_exec.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Action = [
+        "dynamodb:DeleteItem",
+        "dynamodb:GetItem",
+        "dynamodb:PutItem",
+        "dynamodb:Query",
+      ]
+      Resource = var.table_arn
+    }]
+  })
+}
+
 resource "aws_cloudwatch_log_group" "api_lambda" {
   name              = "/aws/lambda/${local.name_prefix}-api"
   retention_in_days = var.log_retention_days
@@ -48,6 +67,13 @@ resource "aws_lambda_function" "api" {
   memory_size   = 512
   timeout       = 10
 
+  environment {
+    variables = {
+      PAPPY_CORS_ALLOWED_ORIGINS = join(",", var.cors_allowed_origins)
+      PAPPY_TABLE_NAME           = var.table_name
+    }
+  }
+
   depends_on = [aws_cloudwatch_log_group.api_lambda]
 }
 
@@ -59,7 +85,7 @@ resource "aws_apigatewayv2_api" "this" {
 
   cors_configuration {
     allow_origins = var.cors_allowed_origins
-    allow_methods = ["GET"]
+    allow_methods = ["GET", "POST", "PATCH", "PUT", "DELETE"]
     allow_headers = ["authorization", "content-type"]
   }
 }
@@ -92,6 +118,14 @@ resource "aws_apigatewayv2_authorizer" "cognito" {
 resource "aws_apigatewayv2_route" "health" {
   api_id    = aws_apigatewayv2_api.this.id
   route_key = "GET /health"
+  target    = "integrations/${aws_apigatewayv2_integration.lambda.id}"
+}
+
+# API Gateway generates the configured CORS response for this unauthenticated
+# route instead of sending browser preflights through the JWT-protected default.
+resource "aws_apigatewayv2_route" "options" {
+  api_id    = aws_apigatewayv2_api.this.id
+  route_key = "OPTIONS /{proxy+}"
   target    = "integrations/${aws_apigatewayv2_integration.lambda.id}"
 }
 

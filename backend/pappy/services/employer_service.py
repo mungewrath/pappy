@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import uuid
+from typing import TYPE_CHECKING
 
-from mypy_boto3_dynamodb.service_resource import Table
+if TYPE_CHECKING:
+    from mypy_boto3_dynamodb.service_resource import Table
 
 from pappy.models.employer import Employer, EmployerCreate, EmployerUpdate
 from pappy.repo import employer_repo

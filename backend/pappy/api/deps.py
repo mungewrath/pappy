@@ -13,8 +13,10 @@ authorizer is wired up. For now it accepts an explicit path parameter.
 from __future__ import annotations
 
 from functools import lru_cache
+from typing import TYPE_CHECKING
 
-from mypy_boto3_dynamodb.service_resource import Table
+if TYPE_CHECKING:
+    from mypy_boto3_dynamodb.service_resource import Table
 
 from pappy.repo.table import get_table as _get_table
 
