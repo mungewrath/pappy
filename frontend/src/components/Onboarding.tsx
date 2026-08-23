@@ -1,33 +1,29 @@
 import { useState } from 'react';
-import { createEmployer, emptyAddress, getEmployer } from '../api/client';
-import { storeEmployerId } from '../api/employerStorage';
-import type { Address, EmployerCreate } from '../api/types';
+import { createEmployer, emptyAddress } from '../api/client';
+import type { Address, Employer, EmployerCreate } from '../api/types';
 
 /**
- * First-run gate (design-doc.md §3.1: one employer per deployment).
+ * First-run gate (design-doc.md §3.1: one employer per account).
  *
- * Until the API derives `employerId` from the JWT `sub` claim (§7.1), the
- * client supplies it on every call; this screen creates the single employer
- * profile — or links to an existing one by pasting its ID — and persists the
- * resulting ID in localStorage for subsequent visits.
+ * The profile is keyed server-side by the JWT token's `sub` claim (§7.1), so
+ * onboarding simply creates it once — from any browser or device. This screen
+ * shows only when GET /employers 404s for the signed-in user.
  */
 
-export function Onboarding({ onReady }: { onReady: (employerId: string) => void }) {
+export function Onboarding({ onReady }: { onReady: (employer: Employer) => void }) {
   return (
     <div className="card">
       <h2>Welcome</h2>
       <p>
         Pappy manages payroll for one household employer. Create your employer
-        profile, or link an existing one by its ID.
+        profile to get started.
       </p>
       <CreateForm onCreated={onReady} />
-      <hr />
-      <LinkExistingForm onLinked={onReady} />
     </div>
   );
 }
 
-function CreateForm({ onCreated }: { onCreated: (employerId: string) => void }) {
+function CreateForm({ onCreated }: { onCreated: (employer: Employer) => void }) {
   const [form, setForm] = useState<EmployerCreate>({
     legal_name: '',
     ein: '',
@@ -53,8 +49,7 @@ function CreateForm({ onCreated }: { onCreated: (employerId: string) => void }) 
     setError(null);
     try {
       const employer = await createEmployer(form);
-      storeEmployerId(employer.employer_id);
-      onCreated(employer.employer_id);
+      onCreated(employer);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -99,47 +94,6 @@ function CreateForm({ onCreated }: { onCreated: (employerId: string) => void }) 
       {error && <p className="error-banner">{error}</p>}
       <button type="submit" disabled={busy}>
         {busy ? 'Creating…' : 'Create profile'}
-      </button>
-    </form>
-  );
-}
-
-function LinkExistingForm({ onLinked }: { onLinked: (employerId: string) => void }) {
-  const [id, setId] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const submit = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      await getEmployer(id.trim());
-      storeEmployerId(id.trim());
-      onLinked(id.trim());
-    } catch (err) {
-      setError(
-        err instanceof Error ? `Could not load that profile: ${err.message}` : String(err),
-      );
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <form
-      onSubmit={(e) => {
-        e.preventDefault();
-        void submit();
-      }}
-    >
-      <h3>Link existing profile</h3>
-      <label className="field">
-        <span>Employer ID</span>
-        <input value={id} onChange={(e) => setId(e.target.value)} placeholder="uuid" />
-      </label>
-      {error && <p className="error-banner">{error}</p>}
-      <button type="submit" disabled={!id.trim() || busy}>
-        Link profile
       </button>
     </form>
   );

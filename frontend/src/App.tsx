@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { User } from 'oidc-client-ts';
-import { getHello } from './api/client';
-import { clearStoredEmployerId, loadStoredEmployerId } from './api/employerStorage';
+import { ApiError, getEmployer, getHello } from './api/client';
+import type { Employer } from './api/types';
 import { Onboarding } from './components/Onboarding';
 import { EmployeesPanel } from './components/EmployeesPanel';
 import { EmployerPanel } from './components/EmployerPanel';
@@ -10,6 +10,14 @@ import { getUser, handleRedirectCallback, isAuthConfigured, isSigninRedirect, lo
 
 type HelloState = { status: 'loading' } | { status: 'ok'; message: string } | { status: 'error'; message: string };
 type AuthState = { status: 'loading' } | { status: 'signed-out' } | { status: 'signed-in'; user: User };
+/** The signed-in user's employer profile lives server-side, keyed by their
+ * token's `sub` claim (design-doc.md §7.1) — so it follows the login across
+ * browsers/devices instead of being remembered per-browser. */
+type ProfileState =
+  | { status: 'loading' }
+  | { status: 'missing' }
+  | { status: 'ready'; employer: Employer }
+  | { status: 'error'; message: string };
 type Tab = 'payruns' | 'employees' | 'employer';
 
 const TABS: { id: Tab; label: string }[] = [
@@ -21,7 +29,7 @@ const TABS: { id: Tab; label: string }[] = [
 function App() {
   const [hello, setHello] = useState<HelloState>({ status: 'loading' });
   const [auth, setAuth] = useState<AuthState>({ status: 'loading' });
-  const [employerId, setEmployerId] = useState<string | null>(loadStoredEmployerId());
+  const [profile, setProfile] = useState<ProfileState>({ status: 'loading' });
   const [tab, setTab] = useState<Tab>('payruns');
 
   useEffect(() => {
@@ -53,6 +61,28 @@ function App() {
         setHello({ status: 'error', message: err instanceof Error ? err.message : String(err) }),
       );
   }, [auth.status]);
+
+  const loadProfile = useCallback(async () => {
+    setProfile({ status: 'loading' });
+    try {
+      const employer = await getEmployer();
+      setProfile({ status: 'ready', employer });
+    } catch (err: unknown) {
+      if (err instanceof ApiError && err.status === 404) {
+        setProfile({ status: 'missing' }); // first sign-in for this account
+      } else {
+        setProfile({
+          status: 'error',
+          message: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    if (auth.status !== 'signed-in') return;
+    void loadProfile();
+  }, [auth.status, loadProfile]);
 
   return (
     <>
@@ -102,11 +132,24 @@ function App() {
         </div>
       )}
 
-      {auth.status === 'signed-in' && !employerId && (
-        <Onboarding onReady={setEmployerId} />
+      {auth.status === 'signed-in' && profile.status === 'loading' && <p>Loading…</p>}
+
+      {auth.status === 'signed-in' && profile.status === 'missing' && (
+        <Onboarding
+          onReady={(employer) => setProfile({ status: 'ready', employer })}
+        />
       )}
 
-      {auth.status === 'signed-in' && employerId && (
+      {auth.status === 'signed-in' && profile.status === 'error' && (
+        <div className="card">
+          <p className="error-banner">Could not load your profile: {profile.message}</p>
+          <button type="button" onClick={() => void loadProfile()}>
+            Retry
+          </button>
+        </div>
+      )}
+
+      {auth.status === 'signed-in' && profile.status === 'ready' && (
         <>
           <nav className="tabs" aria-label="Sections">
             {TABS.map(({ id, label }) => (
@@ -121,14 +164,12 @@ function App() {
             ))}
           </nav>
 
-          {tab === 'payruns' && <PayRunsPanel key="payruns" employerId={employerId} />}
-          {tab === 'employees' && <EmployeesPanel key="employees" employerId={employerId} />}
+          {tab === 'payruns' && <PayRunsPanel key="payruns" />}
+          {tab === 'employees' && <EmployeesPanel key="employees" />}
           {tab === 'employer' && (
             <EmployerPanel
-              onSwitch={() => {
-                clearStoredEmployerId();
-                setEmployerId(null);
-              }}
+              employer={profile.employer}
+              onUpdated={(updated) => setProfile({ status: 'ready', employer: updated })}
             />
           )}
         </>

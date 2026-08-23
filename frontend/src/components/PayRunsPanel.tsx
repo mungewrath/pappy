@@ -37,7 +37,7 @@ function defaultDraftDates(): { period_start: string; period_end: string; pay_da
   return { period_start: day(0), period_end: day(6), pay_date: day(11) };
 }
 
-export function PayRunsPanel({ employerId }: { employerId: string }) {
+export function PayRunsPanel() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [runs, setRuns] = useState<PayRun[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -46,13 +46,13 @@ export function PayRunsPanel({ employerId }: { employerId: string }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   useEffect(() => {
-    listEmployees(employerId).then(setEmployees).catch(() => setEmployees([]));
-  }, [employerId]);
+    listEmployees().then(setEmployees).catch(() => setEmployees([]));
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
     setRuns(null);
-    listPayRuns(employerId, year === 'all' ? undefined : year)
+    listPayRuns(year === 'all' ? undefined : year)
       .then((result) => !cancelled && setRuns(result))
       .catch((err: unknown) => {
         if (cancelled) return;
@@ -62,7 +62,7 @@ export function PayRunsPanel({ employerId }: { employerId: string }) {
     return () => {
       cancelled = true;
     };
-  }, [employerId, year]);
+  }, [year]);
 
   const years = useMemo(() => {
     const set = new Set<number>([currentYear]);
@@ -79,7 +79,7 @@ export function PayRunsPanel({ employerId }: { employerId: string }) {
         <button type="button" className="secondary" onClick={() => setSelectedId(null)}>
           ← All pay runs
         </button>
-        <PayRunDetail employerId={employerId} runId={selectedId} employeeName={employeeName} />
+        <PayRunDetail runId={selectedId} employeeName={employeeName} />
       </div>
     );
   }
@@ -110,7 +110,6 @@ export function PayRunsPanel({ employerId }: { employerId: string }) {
 
       {creating && (
         <NewDraftCard
-          employerId={employerId}
           employees={employees}
           onDone={(message) => {
             setCreating(false);
@@ -118,7 +117,7 @@ export function PayRunsPanel({ employerId }: { employerId: string }) {
               setError(message);
             } else {
               setError(null);
-              listPayRuns(employerId, year === 'all' ? undefined : year)
+              listPayRuns(year === 'all' ? undefined : year)
                 .then(setRuns)
                 .catch(() => {});
             }
@@ -163,11 +162,9 @@ export function PayRunsPanel({ employerId }: { employerId: string }) {
 }
 
 function NewDraftCard({
-  employerId,
   employees,
   onDone,
 }: {
-  employerId: string;
   employees: Employee[];
   onDone: (errorMessage?: string) => void;
 }) {
@@ -184,7 +181,7 @@ function NewDraftCard({
     setBusy(true);
     setError(null);
     try {
-      await createPayRunDraft(employerId, employeeId, {
+      await createPayRunDraft(employeeId, {
         period_start: periodStart,
         period_end: periodEnd,
         pay_date: payDate,
@@ -254,11 +251,9 @@ function NewDraftCard({
 }
 
 function PayRunDetail({
-  employerId,
   runId,
   employeeName,
 }: {
-  employerId: string;
   runId: string;
   employeeName: (employeeId: string) => string;
 }) {
@@ -268,7 +263,7 @@ function PayRunDetail({
   const [error, setError] = useState<string | null>(null);
 
   const load = () => {
-    getPayRun(employerId, runId)
+    getPayRun(runId)
       .then((result) => {
         setRun(result);
         setLines(result.hour_lines);
@@ -279,7 +274,7 @@ function PayRunDetail({
       );
   };
 
-  useEffect(load, [employerId, runId]);
+  useEffect(load, [runId]);
 
   if (!run) {
     return error ? <p className="error-banner">{error}</p> : <p>Loading…</p>;
@@ -301,7 +296,7 @@ function PayRunDetail({
     }
     setBusy(true);
     try {
-      const updated = await updatePayRunHours(employerId, runId, editingLines);
+      const updated = await updatePayRunHours(runId, editingLines);
       setRun(updated);
       setLines(updated.hour_lines);
       setError(null);
@@ -322,7 +317,7 @@ function PayRunDetail({
     }
     setBusy(true);
     try {
-      setRun(await finalizePayRun(employerId, runId));
+      setRun(await finalizePayRun(runId));
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));

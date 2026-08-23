@@ -48,7 +48,12 @@ adding a year or version.
 `{"message": "Hello from Pappy!"}`. Try the CRUD flow, e.g.:
 
 ```sh
-curl -X POST localhost:8000/employers -H 'content-type: application/json' -d '{
+# Every data endpoint derives employerId from the JWT `sub` claim (§7.1) and
+# 401s without a token; locally the Bearer payload is decoded unverified
+# (production tokens are validated by API Gateway's JWT authorizer).
+TOKEN="header.$(printf '{"sub":"local-dev-user"}' | base64 | tr -d '=' | tr '/+' '_-').sig"
+curl -X POST localhost:8000/employers -H 'content-type: application/json' \
+  -H "authorization: Bearer $TOKEN" -d '{
   "legal_name": "Jane Doe", "ein": "12-3456789",
   "address": {"line1": "1 Main St", "city": "Seattle", "state": "WA", "zip_code": "98101"}
 }'

@@ -21,11 +21,16 @@ services:
       context: ./backend
       dockerfile: Dockerfile.dev
     container_name: pappy-db-init
-    environment: &backend-env
+    environment:
+      &backend-env
       PAPPY_DYNAMODB_ENDPOINT_URL: http://dynamodb:8000
       AWS_ACCESS_KEY_ID: local
       AWS_SECRET_ACCESS_KEY: local
       AWS_REGION: us-west-2
+      # Dev-only: data endpoints derive employerId from the JWT `sub` claim;
+      # without Cognito configured locally this pins requests to one principal.
+      # Never set in deployed environments (§7.1).
+      PAPPY_DEV_FALLBACK_SUB: local-dev-user
     volumes:
       # Rate tables live at the repo root, outside the backend image.
       - ./rates:/rates:ro

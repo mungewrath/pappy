@@ -53,27 +53,27 @@ const toForm = (employee: Employee): EmployeeFormState => ({
   })),
 });
 
-export function EmployeesPanel({ employerId }: { employerId: string }) {
+export function EmployeesPanel() {
   const [employees, setEmployees] = useState<Employee[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<Employee | 'new' | null>(null);
 
   const reload = () => {
-    listEmployees(employerId)
+    listEmployees()
       .then(setEmployees)
       .catch((err: unknown) =>
         setError(err instanceof Error ? err.message : String(err)),
       );
   };
 
-  useEffect(reload, [employerId]);
+  useEffect(reload, []);
 
   const remove = async (employee: Employee) => {
     if (!window.confirm(`Delete ${employee.full_name}? Existing pay runs keep their records.`)) {
       return;
     }
     try {
-      await deleteEmployee(employerId, employee.employee_id);
+      await deleteEmployee(employee.employee_id);
       reload();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -95,7 +95,6 @@ export function EmployeesPanel({ employerId }: { employerId: string }) {
 
       {editing && (
         <EmployeeFormCard
-          employerId={employerId}
           employee={editing === 'new' ? null : editing}
           initial={editing === 'new' ? emptyForm() : toForm(editing)}
           onDone={(message) => {
@@ -159,12 +158,10 @@ export function EmployeesPanel({ employerId }: { employerId: string }) {
 }
 
 function EmployeeFormCard({
-  employerId,
   employee,
   initial,
   onDone,
 }: {
-  employerId: string;
   employee: Employee | null;
   initial: EmployeeFormState;
   onDone: (errorMessage?: string) => void;
@@ -197,7 +194,7 @@ function EmployeeFormCard({
         hours: line.hours,
       }));
       if (employee === null) {
-        await createEmployee(employerId, {
+        await createEmployee({
           full_name: form.full_name,
           address: form.address,
           hire_date: form.hire_date,
@@ -206,7 +203,7 @@ function EmployeeFormCard({
           default_schedule: schedule,
         });
       } else {
-        await updateEmployee(employerId, employee.employee_id, {
+        await updateEmployee(employee.employee_id, {
           full_name: form.full_name,
           address: form.address,
           hourly_rate: form.hourly_rate,
