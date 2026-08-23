@@ -22,15 +22,40 @@ import boto3
 from botocore.exceptions import ClientError
 
 if TYPE_CHECKING:
+    from mypy_boto3_dynamodb.client import DynamoDBClient
     from mypy_boto3_dynamodb.service_resource import DynamoDBServiceResource, Table
 
 DEFAULT_TABLE_NAME = "pappy"
 
 
-def _resource() -> DynamoDBServiceResource:
+def _config() -> dict[str, str | None]:
     endpoint_url = os.environ.get("PAPPY_DYNAMODB_ENDPOINT_URL")
     region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION") or "us-west-2"
-    return boto3.resource("dynamodb", region_name=region, endpoint_url=endpoint_url)
+    return {"region_name": region, "endpoint_url": endpoint_url}
+
+
+def _resource() -> DynamoDBServiceResource:
+    config = _config()
+    return boto3.resource(
+        "dynamodb",
+        region_name=config["region_name"],
+        endpoint_url=config["endpoint_url"],
+    )
+
+
+def get_client() -> DynamoDBClient:
+    """A low-level DynamoDB client sharing the resource's configuration.
+
+    Transactions go through this client rather than `table.meta.client`:
+    identical wire behavior against real DynamoDB and DynamoDB Local, and it
+    sidesteps a moto quirk with resource-bound clients (see repo/payrun_repo).
+    """
+    config = _config()
+    return boto3.client(
+        "dynamodb",
+        region_name=config["region_name"],
+        endpoint_url=config["endpoint_url"],
+    )
 
 
 def table_name() -> str:

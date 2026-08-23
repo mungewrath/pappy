@@ -6,7 +6,9 @@ feed deliberately broken JSON through `parse_rate_table` to prove it.
 
 import copy
 import itertools
+from collections.abc import Callable
 from decimal import Decimal
+from typing import Any
 
 import pytest
 from pydantic import ValidationError
@@ -67,7 +69,7 @@ def test_standard_offset_matches_standard_deduction_minus_schedule_floor(
 
 def test_rate_table_is_immutable(rates_2026: RateTable) -> None:
     with pytest.raises(ValidationError):
-        rates_2026.tax_year = 2027  # type: ignore[misc]
+        rates_2026.tax_year = 2027
 
 
 def _base_data() -> dict[str, object]:
@@ -114,11 +116,11 @@ def _base_data() -> dict[str, object]:
         ),
     ],
 )
-def test_malformed_tables_fail_at_load(mutate: object) -> None:
+def test_malformed_tables_fail_at_load(mutate: Callable[[dict[str, Any]], None]) -> None:
     data = _base_data()
-    mutate(data)  # type: ignore[operator]
+    mutate(data)
     with pytest.raises((ValidationError, ValueError, TypeError)):
-        parse_rate_table(data)  # type: ignore[arg-type]
+        parse_rate_table(data)
 
 
 def test_parse_is_pure_no_input_mutation() -> None:

@@ -4,10 +4,13 @@ from decimal import Decimal
 import pytest
 from mypy_boto3_dynamodb.service_resource import Table
 
-from pappy.models.common import OvertimePolicy, PayRunStatus
-from pappy.models.payrun import PayRun, PayRunCreate
-from pappy.repo import payrun_repo
+from pappy.models.common import HourCategory, OvertimePolicy, PayRunStatus
+from pappy.models.payrun import HourLine, PayRun, PayRunCreate
+from pappy.models.ratetable import RateTable
+from pappy.models.ytd import YtdAccumulator
+from pappy.repo import payrun_repo, ytd_repo
 from pappy.repo.exceptions import InvalidStateError, NotFoundError
+from tests.factories import make_payroll
 
 
 def _draft(employer_id: str = "emp-1", run_id: str = "run-1") -> PayRun:
@@ -15,6 +18,10 @@ def _draft(employer_id: str = "emp-1", run_id: str = "run-1") -> PayRun:
         period_start=date(2026, 1, 5),
         period_end=date(2026, 1, 11),
         pay_date=date(2026, 1, 16),
+        hour_lines=[
+            HourLine(work_date=date(2026, 1, day), hours=Decimal(9), category=HourCategory.REGULAR)
+            for day in range(5, 10)
+        ],
     )
     return PayRun.new_draft(
         employer_id=employer_id,
@@ -23,6 +30,23 @@ def _draft(employer_id: str = "emp-1", run_id: str = "run-1") -> PayRun:
         data=data,
         hourly_rate=Decimal("25.00"),
         overtime_policy=OvertimePolicy.APPLIES,
+    )
+
+
+def _finalize(
+    dynamodb_table: Table,
+    rates_2026: RateTable,
+    run: PayRun,
+    *,
+    prior_ytd: YtdAccumulator | None = None,
+) -> tuple[PayRun, YtdAccumulator]:
+    return payrun_repo.finalize(
+        dynamodb_table,
+        run,
+        rate_table_version=1,
+        payroll=make_payroll(str(run.gross.gross), rates_2026),
+        tax_year=2026,
+        prior_ytd=prior_ytd,
     )
 
 
@@ -52,36 +76,103 @@ def test_create_twice_raises_invalid_state(dynamodb_table: Table) -> None:
         payrun_repo.create(dynamodb_table, _draft())
 
 
-def test_save_draft_requires_draft_status(dynamodb_table: Table) -> None:
+def test_save_draft_requires_draft_status(
+    dynamodb_table: Table, rates_2026: RateTable
+) -> None:
     run = _draft()
     payrun_repo.create(dynamodb_table, run)
-    finalized = payrun_repo.finalize(dynamodb_table, run, rate_table_version=1)
+    finalized, _ = _finalize(dynamodb_table, rates_2026, run)
 
     with pytest.raises(InvalidStateError):
         payrun_repo.save_draft(dynamodb_table, finalized)
 
 
-def test_finalize_transitions_status_and_locks_version(dynamodb_table: Table) -> None:
+def test_finalize_transitions_status_and_stores_payroll(
+    dynamodb_table: Table, rates_2026: RateTable
+) -> None:
     run = _draft()
     payrun_repo.create(dynamodb_table, run)
 
-    finalized = payrun_repo.finalize(dynamodb_table, run, rate_table_version=7)
+    finalized, _ = _finalize(dynamodb_table, rates_2026, run)
     assert finalized.status == PayRunStatus.FINALIZED
-    assert finalized.rate_table_version == 7
+    assert finalized.rate_table_version == 1
     assert finalized.finalized_at is not None
+    assert finalized.payroll is not None
+    # gross flows through to the stored computation
+    assert finalized.payroll.gross == run.gross.gross
 
     fetched = payrun_repo.find(dynamodb_table, "emp-1", "run-1")
     assert fetched.status == PayRunStatus.FINALIZED
+    assert fetched.payroll is not None
+    assert fetched.rate_table_version == 1
 
 
-def test_finalize_twice_raises_invalid_state(dynamodb_table: Table) -> None:
+def test_finalize_writes_ytd_accumulator_atomically(
+    dynamodb_table: Table, rates_2026: RateTable
+) -> None:
     run = _draft()
     payrun_repo.create(dynamodb_table, run)
-    payrun_repo.finalize(dynamodb_table, run, rate_table_version=1)
+    assert ytd_repo.get_or_none(dynamodb_table, "emp-1", "nanny-1", 2026) is None
+
+    _, new_ytd = _finalize(dynamodb_table, rates_2026, run)
+
+    stored = ytd_repo.get_or_none(dynamodb_table, "emp-1", "nanny-1", 2026)
+    assert stored is not None
+    assert stored.social_security_wages == Decimal("1187.50")
+    assert stored.medicare_wages == Decimal("1187.50")
+    assert stored.futa_wages == Decimal("1187.50")
+    assert stored.wa_ui_wages == Decimal("1187.50")
+    assert stored.wa_pfml_wages == Decimal("1187.50")
+    assert stored.created_at is not None
+    # the in-memory mirror matches on every persisted field except the
+    # server-side `if_not_exists`/`updated_at` timestamps
+    assert new_ytd.social_security_wages == stored.social_security_wages
+    assert new_ytd.futa_wages == stored.futa_wages
+    assert new_ytd.employee_id == stored.employee_id
+
+
+def test_finalize_twice_raises_and_never_double_counts(
+    dynamodb_table: Table, rates_2026: RateTable
+) -> None:
+    run = _draft()
+    payrun_repo.create(dynamodb_table, run)
+    _finalize(dynamodb_table, rates_2026, run)
 
     stale_draft_copy = run  # still says DRAFT in memory
     with pytest.raises(InvalidStateError):
-        payrun_repo.finalize(dynamodb_table, stale_draft_copy, rate_table_version=1)
+        _finalize(dynamodb_table, rates_2026, stale_draft_copy)
+
+    stored = ytd_repo.get_or_none(dynamodb_table, "emp-1", "nanny-1", 2026)
+    assert stored is not None
+    # The rolled-back transaction left no trace on the accumulator.
+    assert stored.social_security_wages == Decimal("1187.50")
+
+
+def test_finalize_accumulates_across_runs(
+    dynamodb_table: Table, rates_2026: RateTable
+) -> None:
+    first = _draft(run_id="run-a")
+    second = _draft(run_id="run-b").model_copy(update={"pay_date": date(2026, 1, 23)})
+    for run in (first, second):
+        payrun_repo.create(dynamodb_table, run)
+
+    _, ytd_after_first = _finalize(dynamodb_table, rates_2026, first)
+    final_run, ytd_after_second = _finalize(
+        dynamodb_table, rates_2026, second, prior_ytd=ytd_after_first
+    )
+
+    assert ytd_after_second.social_security_wages == Decimal("2375.00")
+
+    stored = ytd_repo.get_or_none(dynamodb_table, "emp-1", "nanny-1", 2026)
+    assert stored is not None
+    assert stored.social_security_wages == Decimal("2375.00")
+    # identity fields survive; created_at was pinned by the first finalize
+    assert stored.employee_id == "nanny-1"
+    assert stored.tax_year == 2026
+    assert stored.created_at is not None
+    assert stored.updated_at is not None
+    assert stored.created_at <= stored.updated_at
+    assert final_run.payroll is not None
 
 
 def test_list_for_employer_filters_by_year(dynamodb_table: Table) -> None:

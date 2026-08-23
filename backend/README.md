@@ -7,14 +7,19 @@ imported, and it's never engaged locally.
 
 ## What's implemented
 
-Phase 2's core CRUD loop (§9): `Employer`, `Employee`, and `PayRun` (draft
-lifecycle: create → edit hours → finalize), backed by the single-table
-DynamoDB layout in §4. Gross pay and the overtime-premium breakdown (§5.4)
-are computed on every hour-line change. **Withholding, net pay, and
-employer tax accruals are not implemented yet** — that requires the Pub.
-15-T percentage-method engine and versioned rate tables (§5.1–§5.3), which
-is its own pass (Phase 1 in §9). A finalized `PayRun` today only locks
-gross pay and a `rate_table_version` placeholder.
+Phases 1–2 of §9: the calculation engine (gross pay + overtime premium
+breakdown §5.4, Pub. 15-T federal withholding §5.3, FICA/WA PFML/WA Cares
+withholding and employer accruals §5.1) plus the full core loop — `Employer`,
+`Employee`, effective-dated W-4 elections, and the `PayRun` lifecycle
+(create → auto-seeded from the default schedule → edit hours → finalize).
+Finalizing resolves the W-4 in effect on the pay date and the current rate
+table for the tax year (`RATES#<year>`, seeded by `pappy.repo.seed`), stores
+the complete computation on the run, and advances the YTD wage-base
+accumulator in the same transaction (§4) — so a run can never be finalized
+twice and wage caps can never double-count.
+
+Not yet implemented: Adjustment entries, document generation (Phase 3+),
+reminders (Phase 4).
 
 ## Local development
 
@@ -30,14 +35,25 @@ export AWS_ACCESS_KEY_ID=local AWS_SECRET_ACCESS_KEY=local AWS_REGION=us-west-2
 
 uv sync
 uv run python -c "from pappy.repo.table import create_table_if_not_exists; create_table_if_not_exists()"
+PAPPY_RATES_DIR=../rates uv run python -m pappy.repo.seed
 uv run uvicorn pappy.api.app:app --reload --port 8000
 ```
+
+The seed step loads every `rates/<year>.json` into `RATES#<year>` — without
+it, finalization fails with a 404 for that tax year (§5.2: rates are data,
+and missing data must block, not default). It is idempotent; re-run it after
+adding a year or version.
 
 `GET http://localhost:8000/hello` should return
 `{"message": "Hello from Pappy!"}`. Try the CRUD flow, e.g.:
 
 ```sh
-curl -X POST localhost:8000/employers -H 'content-type: application/json' -d '{
+# Every data endpoint derives employerId from the JWT `sub` claim (§7.1) and
+# 401s without a token; locally the Bearer payload is decoded unverified
+# (production tokens are validated by API Gateway's JWT authorizer).
+TOKEN="header.$(printf '{"sub":"local-dev-user"}' | base64 | tr -d '=' | tr '/+' '_-').sig"
+curl -X POST localhost:8000/employers -H 'content-type: application/json' \
+  -H "authorization: Bearer $TOKEN" -d '{
   "legal_name": "Jane Doe", "ein": "12-3456789",
   "address": {"line1": "1 Main St", "city": "Seattle", "state": "WA", "zip_code": "98101"}
 }'

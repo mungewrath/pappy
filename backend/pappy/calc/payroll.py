@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, computed_field
 
 from pappy.calc.fit import MissingW4Error, compute_fit
 from pappy.decimals import StrictDecimal
@@ -59,7 +59,11 @@ class TaxableWages(BaseModel):
 
 
 class EmployeeWithholding(BaseModel):
-    """Employee-side deduction lines, in stub display order (§5.4)."""
+    """Employee-side deduction lines, in stub display order (§5.4).
+
+    `total` is serialized so clients can display it without doing money
+    arithmetic themselves (§5.5: the frontend formats, never computes).
+    """
 
     social_security: Money
     medicare: Money
@@ -68,6 +72,7 @@ class EmployeeWithholding(BaseModel):
     wa_pfml_employee: Money
     wa_cares_employee: Money
 
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def total(self) -> Money:
         return Money.sum(
@@ -95,6 +100,7 @@ class EmployerAccruals(BaseModel):
     wa_ui: Money
     wa_pfml_employer: Money
 
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def total(self) -> Money:
         return Money.sum(

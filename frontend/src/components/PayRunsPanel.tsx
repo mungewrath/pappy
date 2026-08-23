@@ -7,7 +7,7 @@ import {
   listPayRuns,
   updatePayRunHours,
 } from '../api/client';
-import type { Employee, HourLine, HourCategory, PayRun } from '../api/types';
+import type { Employee, HourLine, HourCategory, PayrollResult, PayRun } from '../api/types';
 import { HOUR_CATEGORIES } from '../api/types';
 import {
   formatDate,
@@ -37,7 +37,7 @@ function defaultDraftDates(): { period_start: string; period_end: string; pay_da
   return { period_start: day(0), period_end: day(6), pay_date: day(11) };
 }
 
-export function PayRunsPanel({ employerId }: { employerId: string }) {
+export function PayRunsPanel() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [runs, setRuns] = useState<PayRun[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -46,13 +46,13 @@ export function PayRunsPanel({ employerId }: { employerId: string }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   useEffect(() => {
-    listEmployees(employerId).then(setEmployees).catch(() => setEmployees([]));
-  }, [employerId]);
+    listEmployees().then(setEmployees).catch(() => setEmployees([]));
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
     setRuns(null);
-    listPayRuns(employerId, year === 'all' ? undefined : year)
+    listPayRuns(year === 'all' ? undefined : year)
       .then((result) => !cancelled && setRuns(result))
       .catch((err: unknown) => {
         if (cancelled) return;
@@ -62,7 +62,7 @@ export function PayRunsPanel({ employerId }: { employerId: string }) {
     return () => {
       cancelled = true;
     };
-  }, [employerId, year]);
+  }, [year]);
 
   const years = useMemo(() => {
     const set = new Set<number>([currentYear]);
@@ -79,7 +79,7 @@ export function PayRunsPanel({ employerId }: { employerId: string }) {
         <button type="button" className="secondary" onClick={() => setSelectedId(null)}>
           ← All pay runs
         </button>
-        <PayRunDetail employerId={employerId} runId={selectedId} employeeName={employeeName} />
+        <PayRunDetail runId={selectedId} employeeName={employeeName} />
       </div>
     );
   }
@@ -110,7 +110,6 @@ export function PayRunsPanel({ employerId }: { employerId: string }) {
 
       {creating && (
         <NewDraftCard
-          employerId={employerId}
           employees={employees}
           onDone={(message) => {
             setCreating(false);
@@ -118,7 +117,7 @@ export function PayRunsPanel({ employerId }: { employerId: string }) {
               setError(message);
             } else {
               setError(null);
-              listPayRuns(employerId, year === 'all' ? undefined : year)
+              listPayRuns(year === 'all' ? undefined : year)
                 .then(setRuns)
                 .catch(() => {});
             }
@@ -139,6 +138,7 @@ export function PayRunsPanel({ employerId }: { employerId: string }) {
               <th>Pay date</th>
               <th>Employee</th>
               <th className="num">Gross</th>
+              <th className="num">Net</th>
             </tr>
           </thead>
           <tbody>
@@ -153,6 +153,9 @@ export function PayRunsPanel({ employerId }: { employerId: string }) {
                 <td>{formatDate(run.pay_date)}</td>
                 <td>{employeeName(run.employee_id)}</td>
                 <td className="num">{formatMoney(run.gross.gross)}</td>
+                <td className="num">
+                  {run.payroll ? formatMoney(run.payroll.net_pay) : '—'}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -163,11 +166,9 @@ export function PayRunsPanel({ employerId }: { employerId: string }) {
 }
 
 function NewDraftCard({
-  employerId,
   employees,
   onDone,
 }: {
-  employerId: string;
   employees: Employee[];
   onDone: (errorMessage?: string) => void;
 }) {
@@ -184,7 +185,7 @@ function NewDraftCard({
     setBusy(true);
     setError(null);
     try {
-      await createPayRunDraft(employerId, employeeId, {
+      await createPayRunDraft(employeeId, {
         period_start: periodStart,
         period_end: periodEnd,
         pay_date: payDate,
@@ -253,12 +254,23 @@ function NewDraftCard({
   );
 }
 
+/** Finalization is blocked server-side without a W-4 (§5.3) or a seeded rate
+ * table (§5.2); point the employer at the fix instead of a bare 409. */
+function finalizeErrorHint(err: unknown): string {
+  const message = err instanceof Error ? err.message : String(err);
+  if (/W-4/i.test(message)) {
+    return `${message} — add a Form W-4 election for this employee on the Employees tab.`;
+  }
+  if (/RateTable|rate table/i.test(message)) {
+    return `${message} — the rate tables must be seeded before finalizing (see backend README).`;
+  }
+  return message;
+}
+
 function PayRunDetail({
-  employerId,
   runId,
   employeeName,
 }: {
-  employerId: string;
   runId: string;
   employeeName: (employeeId: string) => string;
 }) {
@@ -268,7 +280,7 @@ function PayRunDetail({
   const [error, setError] = useState<string | null>(null);
 
   const load = () => {
-    getPayRun(employerId, runId)
+    getPayRun(runId)
       .then((result) => {
         setRun(result);
         setLines(result.hour_lines);
@@ -279,7 +291,7 @@ function PayRunDetail({
       );
   };
 
-  useEffect(load, [employerId, runId]);
+  useEffect(load, [runId]);
 
   if (!run) {
     return error ? <p className="error-banner">{error}</p> : <p>Loading…</p>;
@@ -301,7 +313,7 @@ function PayRunDetail({
     }
     setBusy(true);
     try {
-      const updated = await updatePayRunHours(employerId, runId, editingLines);
+      const updated = await updatePayRunHours(runId, editingLines);
       setRun(updated);
       setLines(updated.hour_lines);
       setError(null);
@@ -322,10 +334,10 @@ function PayRunDetail({
     }
     setBusy(true);
     try {
-      setRun(await finalizePayRun(employerId, runId));
+      setRun(await finalizePayRun(runId));
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(finalizeErrorHint(err));
     } finally {
       setBusy(false);
     }
@@ -363,6 +375,8 @@ function PayRunDetail({
       </p>
 
       <GrossBreakdown run={run} />
+
+      {run.payroll && <PayrollBreakdown payroll={run.payroll} />}
 
       <h3>Hour lines</h3>
       {(editingLines.length > 0 || !isDraft) && (
@@ -493,5 +507,87 @@ function GrossBreakdown({ run }: { run: PayRun }) {
         </tr>
       </tbody>
     </table>
+  );
+}
+
+/** The stored computation for a FINALIZED run (design-doc.md §5.1): employee
+ * withholding with net pay, then the employer accruals that drive Schedule H
+ * and quarterly estimates later. Display-only — no client-side arithmetic. */
+function PayrollBreakdown({ payroll }: { payroll: PayrollResult }) {
+  const w = payroll.withholding;
+  const a = payroll.employer_accruals;
+  return (
+    <>
+      <h3>Withholding &amp; net pay</h3>
+      <table className="data breakdown">
+        <tbody>
+          <tr>
+            <td>Social Security (6.2%)</td>
+            <td className="num">{formatMoney(w.social_security)}</td>
+            <td>Medicare (1.45%)</td>
+            <td className="num">{formatMoney(w.medicare)}</td>
+          </tr>
+          {Number(w.additional_medicare) > 0 && (
+            <tr>
+              <td>Additional Medicare (0.9%)</td>
+              <td className="num">{formatMoney(w.additional_medicare)}</td>
+              <td></td>
+              <td></td>
+            </tr>
+          )}
+          <tr>
+            <td>Federal income tax</td>
+            <td className="num">{formatMoney(w.federal_income_tax)}</td>
+            <td>WA Paid Family &amp; Medical Leave</td>
+            <td className="num">{formatMoney(w.wa_pfml_employee)}</td>
+          </tr>
+          <tr>
+            <td>WA Cares Fund</td>
+            <td className="num">{formatMoney(w.wa_cares_employee)}</td>
+            <td>
+              <strong>Total withholding</strong>
+            </td>
+            <td className="num">
+              <strong>{formatMoney(w.total)}</strong>
+            </td>
+          </tr>
+          <tr>
+            <td colSpan={2}></td>
+            <td>
+              <strong>Net pay</strong>
+            </td>
+            <td className="num">
+              <strong>{formatMoney(payroll.net_pay)}</strong>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      <details>
+        <summary className="muted">Employer tax accruals (not withheld from the employee)</summary>
+        <table className="data breakdown">
+          <tbody>
+            <tr>
+              <td>Social Security match</td>
+              <td className="num">{formatMoney(a.social_security)}</td>
+              <td>Medicare match</td>
+              <td className="num">{formatMoney(a.medicare)}</td>
+            </tr>
+            <tr>
+              <td>FUTA</td>
+              <td className="num">{formatMoney(a.futa)}</td>
+              <td>WA unemployment (UI)</td>
+              <td className="num">{formatMoney(a.wa_ui)}</td>
+            </tr>
+            <tr>
+              <td>WA PFML employer share</td>
+              <td className="num">{formatMoney(a.wa_pfml_employer)}</td>
+              <td></td>
+              <td></td>
+            </tr>
+          </tbody>
+        </table>
+      </details>
+    </>
   );
 }

@@ -50,6 +50,8 @@ export interface EmployerCreate {
   wa_esd_account_number?: string | null;
   ubi?: string | null;
   address: Address;
+  /** ESD-assigned experience rate (e.g. "0.0128"), from the annual rate notice. */
+  wa_ui_experience_rate?: DecimalString | null;
 }
 
 export interface EmployerUpdate {
@@ -58,6 +60,7 @@ export interface EmployerUpdate {
   wa_esd_account_number?: string | null;
   ubi?: string | null;
   address?: Address;
+  wa_ui_experience_rate?: DecimalString | null;
 }
 
 export interface Employer {
@@ -67,6 +70,7 @@ export interface Employer {
   wa_esd_account_number?: string | null;
   ubi?: string | null;
   address: Address;
+  wa_ui_experience_rate?: DecimalString | null;
   created_at: string;
   updated_at: string;
 }
@@ -112,6 +116,74 @@ export interface Employee {
   updated_at: string;
 }
 
+// --- W-4 elections (design-doc.md §3.1, §5.3) --------------------------------
+
+export type FilingStatus = 'SINGLE_OR_MFS' | 'MARRIED_JOINTLY' | 'HEAD_OF_HOUSEHOLD';
+
+export const FILING_STATUSES: readonly FilingStatus[] = [
+  'SINGLE_OR_MFS',
+  'MARRIED_JOINTLY',
+  'HEAD_OF_HOUSEHOLD',
+];
+
+export const FILING_STATUS_LABELS: Readonly<Record<FilingStatus, string>> = {
+  SINGLE_OR_MFS: 'Single or married filing separately',
+  MARRIED_JOINTLY: 'Married filing jointly',
+  HEAD_OF_HOUSEHOLD: 'Head of household',
+};
+
+/** One effective-dated Form W-4 election. Amounts are annual except
+ * `extra_withholding`, which is per pay period (Form W-4 Step 4c). */
+export interface W4Election {
+  effective_date: string;
+  filing_status: FilingStatus;
+  multiple_jobs_step2c: boolean;
+  dependent_credit_amount: DecimalString;
+  other_income: DecimalString;
+  deductions: DecimalString;
+  extra_withholding: DecimalString;
+}
+
+// --- Payroll result (computed at finalization; design-doc.md §5.1) -----------
+
+/** The slice of the run's gross each wage-base-capped tax applied to. */
+export interface TaxableWages {
+  social_security: DecimalString;
+  medicare: DecimalString;
+  additional_medicare: DecimalString;
+  futa: DecimalString;
+  wa_ui: DecimalString;
+  wa_pfml: DecimalString;
+}
+
+export interface EmployeeWithholding {
+  social_security: DecimalString;
+  medicare: DecimalString;
+  additional_medicare: DecimalString;
+  federal_income_tax: DecimalString;
+  wa_pfml_employee: DecimalString;
+  wa_cares_employee: DecimalString;
+  /** Server-computed sum — the client never adds money itself (§5.5). */
+  total: DecimalString;
+}
+
+export interface EmployerAccruals {
+  social_security: DecimalString;
+  medicare: DecimalString;
+  futa: DecimalString;
+  wa_ui: DecimalString;
+  wa_pfml_employer: DecimalString;
+  total: DecimalString;
+}
+
+export interface PayrollResult {
+  gross: DecimalString;
+  taxable: TaxableWages;
+  withholding: EmployeeWithholding;
+  net_pay: DecimalString;
+  employer_accruals: EmployerAccruals;
+}
+
 // --- PayRun -----------------------------------------------------------------
 
 export interface HourLine {
@@ -151,6 +223,9 @@ export interface PayRun {
   pay_date: string;
   hour_lines: HourLine[];
   gross: GrossPayResult;
+  /** Present only on FINALIZED runs — the complete computation stored at
+   * finalization (design-doc.md §3.1, "compute once, store the result"). */
+  payroll?: PayrollResult | null;
   rate_table_version?: number | null;
   created_at: string;
   updated_at: string;

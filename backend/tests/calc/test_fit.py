@@ -134,7 +134,7 @@ def test_zero_gross_withholds_nothing_but_honors_extra(
 
 def test_missing_w4_blocks_computation(rates_2026: RateTable) -> None:
     with pytest.raises(MissingW4Error):
-        compute_fit(period_gross=Money("800.00"), w4=None, rates=rates_2026)  # type: ignore[arg-type]
+        compute_fit(period_gross=Money("800.00"), w4=None, rates=rates_2026)
 
 
 class TestResolveW4:
