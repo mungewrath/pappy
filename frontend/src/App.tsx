@@ -176,7 +176,7 @@ function App() {
       )}
 
       <footer className="app-footer muted">
-        Pay stubs, withholding, and year-end artifacts arrive in later phases (design-doc.md §9).
+        Pay stub PDFs, reminders, and year-end artifacts arrive in later phases (design-doc.md §9).
       </footer>
     </>
   );

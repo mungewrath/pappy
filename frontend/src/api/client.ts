@@ -26,6 +26,7 @@ import type {
   HourLine,
   PayRun,
   PayRunCreate,
+  W4Election,
 } from './types';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000';
@@ -124,6 +125,24 @@ export function updateEmployee(employeeId: string, patch: EmployeeUpdate): Promi
 
 export function deleteEmployee(employeeId: string): Promise<void> {
   return request<void>(employeePath(employeeId), { method: 'DELETE' });
+}
+
+// --- W-4 elections (design-doc.md §5.3) --------------------------------------
+
+const w4Path = (employeeId: string): string =>
+  `/employees/${encodeURIComponent(employeeId)}/w4`;
+
+/** Records an effective-dated W-4 election. A pay run resolves the election in
+ * effect on its pay date, so a mid-year re-election never rewrites history. */
+export function addW4Election(employeeId: string, data: W4Election): Promise<W4Election> {
+  return request<W4Election>(w4Path(employeeId), {
+    method: 'POST',
+    body: data,
+  });
+}
+
+export function listW4Elections(employeeId: string): Promise<W4Election[]> {
+  return request<W4Election[]>(w4Path(employeeId));
 }
 
 // --- Pay runs ---------------------------------------------------------------
