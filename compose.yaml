@@ -72,6 +72,9 @@ services:
       - uvicorn
       - pappy.api.app:app
       - --reload
+      # Watch only the source package: keeps the reloader's event set small so
+      # file events don't churn across the Docker VM boundary when idle.
+      - --reload-dir=pappy
       - --host=0.0.0.0
       - --port=8000
     ports:
