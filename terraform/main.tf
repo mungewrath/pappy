@@ -24,6 +24,13 @@ module "api" {
   cors_allowed_origins        = ["https://${module.frontend.cloudfront_domain_name}", "http://localhost:5173"]
   cognito_issuer              = module.auth.issuer
   cognito_user_pool_client_id = module.auth.user_pool_client_id
+
+  # Reminders test-send endpoint (§6.6) sends via the same SES identities
+  # the scheduler uses.
+  reminder_from_email        = var.reminder_from_email
+  reminder_to_email          = var.reminder_to_email
+  reminder_from_identity_arn = module.scheduling.ses_from_identity_arn
+  reminder_to_identity_arn   = module.scheduling.ses_to_identity_arn
 }
 
 module "data" {
@@ -39,6 +46,24 @@ module "frontend" {
   project       = var.project
   environment   = var.environment
   spa_build_dir = var.spa_build_dir
+}
+
+# Phase 4 (§9): reminders — EventBridge schedules + scheduler Lambda + SES.
+# The weekly cadence seeds DRAFT pay runs (§6.1), making the loop hands-off;
+# every cadence materializes acknowledgeable ReminderInstances and emails
+# them (§6.6). Test mail goes to var.reminder_to_email until flipped.
+module "scheduling" {
+  source = "./modules/scheduling"
+
+  project              = var.project
+  environment          = var.environment
+  lambda_artifact_path = var.api_lambda_artifact_path
+  log_retention_days   = var.log_retention_days
+  table_arn            = module.data.table_arn
+  table_name           = module.data.table_name
+
+  reminder_from_email = var.reminder_from_email
+  reminder_to_email   = var.reminder_to_email
 }
 
 # Account-level, not per-environment: the OIDC provider is a singleton per

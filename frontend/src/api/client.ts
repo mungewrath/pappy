@@ -26,6 +26,9 @@ import type {
   HourLine,
   PayRun,
   PayRunCreate,
+  Reminder,
+  TestSendRequest,
+  TestSendResponse,
   W4Election,
 } from './types';
 
@@ -186,6 +189,32 @@ export function finalizePayRun(runId: string): Promise<PayRun> {
   return request<PayRun>(payRunPath(runId, '/finalize'), {
     method: 'POST',
     body: {},
+  });
+}
+
+// --- Reminders (design-doc.md §6.6) ------------------------------------------
+
+const reminderPath = (reminderId?: string, suffix?: string): string =>
+  `/reminders${reminderId ? `/${encodeURIComponent(reminderId)}` : ''}${suffix ?? ''}`;
+
+/** Open reminders by default; `open_only: false` includes acknowledged history. */
+export function listReminders(openOnly = true): Promise<Reminder[]> {
+  return request<Reminder[]>(`${reminderPath()}?open_only=${openOnly}`);
+}
+
+export function acknowledgeReminder(reminderId: string): Promise<Reminder> {
+  return request<Reminder>(reminderPath(reminderId, '/acknowledge'), {
+    method: 'POST',
+    body: {},
+  });
+}
+
+/** Fires a reminder rule right now — the same code path as the scheduled
+ * Lambda, including idempotency per due date. */
+export function testSendReminder(data: TestSendRequest): Promise<TestSendResponse> {
+  return request<TestSendResponse>(reminderPath(undefined, '/test-send'), {
+    method: 'POST',
+    body: data,
   });
 }
 

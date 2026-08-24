@@ -31,6 +31,11 @@ services:
       # without Cognito configured locally this pins requests to one principal.
       # Never set in deployed environments (§7.1).
       PAPPY_DEV_FALLBACK_SUB: local-dev-user
+      # Reminder email routing (§6.6). Locally the mailer defaults to the log
+      # transport — emails print to `docker compose logs backend` instead of
+      # being sent; Terraform sets PAPPY_MAILER=ses in deployments.
+      PAPPY_REMINDER_FROM_EMAIL: matthew.unrath@gmail.com
+      PAPPY_REMINDER_TO_EMAIL: mungewrath@gmail.com
     volumes:
       # Rate tables live at the repo root, outside the backend image.
       - ./rates:/rates:ro
