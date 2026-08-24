@@ -6,6 +6,7 @@ import { Onboarding } from './components/Onboarding';
 import { EmployeesPanel } from './components/EmployeesPanel';
 import { EmployerPanel } from './components/EmployerPanel';
 import { PayRunsPanel } from './components/PayRunsPanel';
+import { TaxPanel } from './components/TaxPanel';
 import { getUser, handleRedirectCallback, isAuthConfigured, isSigninRedirect, login, logout } from './auth/cognito';
 
 type HelloState = { status: 'loading' } | { status: 'ok'; message: string } | { status: 'error'; message: string };
@@ -18,10 +19,11 @@ type ProfileState =
   | { status: 'missing' }
   | { status: 'ready'; employer: Employer }
   | { status: 'error'; message: string };
-type Tab = 'payruns' | 'employees' | 'employer';
+type Tab = 'payruns' | 'tax' | 'employees' | 'employer';
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'payruns', label: 'Pay runs' },
+  { id: 'tax', label: 'Tax' },
   { id: 'employees', label: 'Employees' },
   { id: 'employer', label: 'Employer' },
 ];
@@ -165,6 +167,7 @@ function App() {
           </nav>
 
           {tab === 'payruns' && <PayRunsPanel key="payruns" />}
+          {tab === 'tax' && <TaxPanel key="tax" />}
           {tab === 'employees' && <EmployeesPanel key="employees" />}
           {tab === 'employer' && (
             <EmployerPanel
@@ -176,7 +179,7 @@ function App() {
       )}
 
       <footer className="app-footer muted">
-        Pay stub PDFs, reminders, and year-end artifacts arrive in later phases (design-doc.md §9).
+        Pay stub PDFs, reminders, and the document store arrive in later phases (design-doc.md §9).
       </footer>
     </>
   );

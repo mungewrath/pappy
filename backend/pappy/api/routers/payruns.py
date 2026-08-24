@@ -15,6 +15,7 @@ from pydantic import BaseModel
 
 from pappy.api.deps import EmployerIdDep, get_table
 from pappy.models.payrun import HourLine, PayRun, PayRunCreate
+from pappy.models.reports import BackfillCreate, BackfillResult, FinalizePendingResult
 from pappy.services import payrun_service
 
 router = APIRouter(prefix="/payruns", tags=["payruns"])
@@ -26,6 +27,21 @@ class HourLinesUpdate(BaseModel):
     hour_lines: list[HourLine]
 
 
+@router.post("/finalize-pending", response_model=FinalizePendingResult)
+def finalize_pending(
+    table: TableDep,
+    employer_id: EmployerIdDep,
+    year: int | None = None,
+    employee_id: str | None = None,
+) -> FinalizePendingResult:
+    """Finalize pending drafts oldest-pay-date-first (Phase 6 historical
+    entry). Processing stops at the first failure so wage-base caps stay
+    correct; remaining drafts stay pending."""
+    return payrun_service.finalize_pending_runs(
+        table, employer_id, tax_year=year, employee_id=employee_id
+    )
+
+
 @router.post("/employees/{employee_id}", response_model=PayRun, status_code=201)
 def create_payrun(
     employee_id: str, data: PayRunCreate, table: TableDep, employer_id: EmployerIdDep
@@ -33,6 +49,17 @@ def create_payrun(
     """Open a new draft. If `hour_lines` is omitted, auto-populates from the
     employee's default weekly schedule (design-doc.md §6.1)."""
     return payrun_service.create_draft(table, employer_id, employee_id, data)
+
+
+@router.post("/employees/{employee_id}/backfill", response_model=BackfillResult, status_code=201)
+def backfill_history(
+    employee_id: str, spec: BackfillCreate, table: TableDep, employer_id: EmployerIdDep
+) -> BackfillResult:
+    """Create weekly DRAFT runs across a historical date range (Phase 6):
+    whole weeks of history in one call, seeded from the schedule or a flat
+    weekly total. Existing runs are never touched — overlapping weeks are
+    skipped. Review the drafts, then `POST /payruns/finalize-pending`."""
+    return payrun_service.create_backfill_drafts(table, employer_id, employee_id, spec)
 
 
 @router.get("", response_model=list[PayRun])

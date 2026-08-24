@@ -17,16 +17,23 @@
 import { getAccessToken } from '../auth/cognito';
 import type {
   Address,
+  BackfillCreate,
+  BackfillResult,
+  EarningsSummary,
   Employee,
   EmployeeCreate,
   EmployeeUpdate,
   Employer,
   EmployerCreate,
   EmployerUpdate,
+  FinalizePendingResult,
   HourLine,
   PayRun,
   PayRunCreate,
+  QuarterlyEstimates,
+  ScheduleHWorksheet,
   W4Election,
+  W2Summary,
 } from './types';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000';
@@ -187,6 +194,78 @@ export function finalizePayRun(runId: string): Promise<PayRun> {
     method: 'POST',
     body: {},
   });
+}
+
+/** Creates weekly DRAFT runs across a historical date range (Phase 6).
+ * Overlapping weeks are skipped, never overwritten. */
+export function backfillHistory(
+  employeeId: string,
+  data: BackfillCreate,
+): Promise<BackfillResult> {
+  return request<BackfillResult>(
+    `${payRunPath()}/employees/${encodeURIComponent(employeeId)}/backfill`,
+    { method: 'POST', body: data },
+  );
+}
+
+/** Finalizes pending drafts oldest-pay-date-first. Stops at the first
+ * failure so wage-base caps stay correct; the rest stay pending. */
+export function finalizePendingRuns(params?: { year?: number }): Promise<FinalizePendingResult> {
+  const query = params?.year === undefined ? '' : `?year=${params.year}`;
+  return request<FinalizePendingResult>(`${payRunPath()}/finalize-pending${query}`, {
+    method: 'POST',
+    body: {},
+  });
+}
+
+// --- Tax-year artifacts (design-doc.md §6.4–§6.6) -----------------------------
+
+const taxYearPath = (taxYear: number, suffix?: string): string =>
+  `/tax-years/${taxYear}${suffix ?? ''}`;
+
+export function getQuarterlyEstimates(taxYear: number): Promise<QuarterlyEstimates> {
+  return request<QuarterlyEstimates>(taxYearPath(taxYear, '/1040-es'));
+}
+
+export function getScheduleH(taxYear: number): Promise<ScheduleHWorksheet> {
+  return request<ScheduleHWorksheet>(taxYearPath(taxYear, '/schedule-h'));
+}
+
+export function getW2Summaries(taxYear: number): Promise<W2Summary[]> {
+  return request<W2Summary[]>(taxYearPath(taxYear, '/w2'));
+}
+
+export function getEarningsSummaries(taxYear: number): Promise<EarningsSummary[]> {
+  return request<EarningsSummary[]>(taxYearPath(taxYear, '/earnings-summary'));
+}
+
+/** Downloads the SSA EFW2 upload file. SSNs are sent transiently for this
+ * one generation — the backend never stores or logs them (§7.3). */
+export async function downloadEfw2(
+  taxYear: number,
+  employeeSsns: Record<string, string>,
+): Promise<void> {
+  const token = await getAccessToken();
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const response = await fetch(`${API_BASE_URL}${taxYearPath(taxYear, '/efw2')}`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ employee_ssns: employeeSsns }),
+  });
+  if (!response.ok) throw await toApiError(response);
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  try {
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `EFW2-${taxYear}.txt`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+  } finally {
+    URL.revokeObjectURL(url);
+  }
 }
 
 // --- Form helpers -----------------------------------------------------------

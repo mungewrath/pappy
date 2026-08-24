@@ -1,13 +1,22 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
+  backfillHistory,
   createPayRunDraft,
   finalizePayRun,
+  finalizePendingRuns,
   getPayRun,
   listEmployees,
   listPayRuns,
   updatePayRunHours,
 } from '../api/client';
-import type { Employee, HourLine, HourCategory, PayrollResult, PayRun } from '../api/types';
+import type {
+  BackfillResult,
+  Employee,
+  HourLine,
+  HourCategory,
+  PayrollResult,
+  PayRun,
+} from '../api/types';
 import { HOUR_CATEGORIES } from '../api/types';
 import {
   formatDate,
@@ -41,8 +50,10 @@ export function PayRunsPanel() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [runs, setRuns] = useState<PayRun[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [status, setStatus] = useState<string | null>(null);
   const [year, setYear] = useState<number | 'all'>(currentYear);
   const [creating, setCreating] = useState(false);
+  const [backfilling, setBackfilling] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -69,6 +80,39 @@ export function PayRunsPanel() {
     for (const run of runs ?? []) set.add(Number(run.pay_date.slice(0, 4)));
     return [...set].sort((a, b) => b - a);
   }, [runs]);
+
+  const pendingDraftCount = (runs ?? []).filter((run) => run.status === 'DRAFT').length;
+
+  const refreshRuns = () =>
+    listPayRuns(year === 'all' ? undefined : year)
+      .then(setRuns)
+      .catch(() => {});
+
+  /** Bulk-locks pending drafts oldest-first — the only order that keeps
+   * wage-base caps correct when history arrives out of order. */
+  const finalizePending = async () => {
+    if (!window.confirm('Finalize all pending drafts oldest-pay-date-first?\n\nFinalized runs are immutable.')) {
+      return;
+    }
+    setStatus('Finalizing…');
+    try {
+      const result = await finalizePendingRuns({ year: year === 'all' ? undefined : year });
+      if (result.failed.length > 0) {
+        const failure = result.failed[0];
+        setError(
+          `Finalized ${result.finalized.length} run(s), then stopped at ${formatDate(failure.pay_date)}: ${failure.detail}`,
+        );
+        setStatus(null);
+      } else {
+        setError(null);
+        setStatus(`Finalized ${result.finalized.length} run(s), oldest first.`);
+      }
+      await refreshRuns();
+    } catch (err) {
+      setStatus(null);
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
 
   const employeeName = (employeeId: string) =>
     employees.find((e) => e.employee_id === employeeId)?.full_name ?? 'Unknown employee';
@@ -100,13 +144,36 @@ export function PayRunsPanel() {
           </select>
         </label>
         {!creating && (
-          <button type="button" onClick={() => setCreating(true)}>
+          <button
+            type="button"
+            onClick={() => {
+              setBackfilling(!backfilling);
+              setCreating(false);
+            }}
+          >
+            {backfilling ? 'Close backfill' : 'Backfill history…'}
+          </button>
+        )}
+        {!backfilling && pendingDraftCount > 0 && (
+          <button type="button" className="primary" onClick={() => void finalizePending()}>
+            Finalize {pendingDraftCount} pending (oldest first)
+          </button>
+        )}
+        {!creating && !backfilling && (
+          <button
+            type="button"
+            onClick={() => {
+              setCreating(true);
+              setBackfilling(false);
+            }}
+          >
             New draft
           </button>
         )}
       </div>
 
       {error && <p className="error-banner">{error}</p>}
+      {!error && status && <p className="saved-note">{status}</p>}
 
       {creating && (
         <NewDraftCard
@@ -117,9 +184,29 @@ export function PayRunsPanel() {
               setError(message);
             } else {
               setError(null);
-              listPayRuns(year === 'all' ? undefined : year)
-                .then(setRuns)
-                .catch(() => {});
+              refreshRuns();
+            }
+          }}
+        />
+      )}
+
+      {backfilling && (
+        <BackfillCard
+          employees={employees}
+          onDone={(message, result) => {
+            setBackfilling(false);
+            if (message) {
+              setError(message);
+            } else {
+              setError(null);
+              const created = result?.created.length ?? 0;
+              const skipped = result?.skipped.length ?? 0;
+              setStatus(
+                `Created ${created} draft${created === 1 ? '' : 's'}` +
+                  (skipped > 0 ? ` (${skipped} week${skipped === 1 ? '' : 's'} skipped — overlapping or no hours)` : '') +
+                  '. Review them below, then “Finalize pending” (oldest first).',
+              );
+              refreshRuns();
             }
           }}
         />
@@ -264,7 +351,136 @@ function finalizeErrorHint(err: unknown): string {
   if (/RateTable|rate table/i.test(message)) {
     return `${message} — the rate tables must be seeded before finalizing (see backend README).`;
   }
+  if (/oldest-first|precedes/i.test(message)) {
+    return `${message} Use “Finalize pending”, which locks drafts oldest-pay-date-first.`;
+  }
   return message;
+}
+
+/** Historical entry (Phase 6): one call creates weekly drafts across a past
+ * date range; they land as ordinary DRAFTs for review before finalizing. */
+function BackfillCard({
+  employees,
+  onDone,
+}: {
+  employees: Employee[];
+  onDone: (errorMessage?: string, result?: BackfillResult) => void;
+}) {
+  const [employeeId, setEmployeeId] = useState('');
+  const [periodStart, setPeriodStart] = useState(`${currentYear}-01-01`);
+  const [periodEnd, setPeriodEnd] = useState(todayIso());
+  const [mode, setMode] = useState<'SCHEDULE' | 'FLAT'>('SCHEDULE');
+  const [weeklyHours, setWeeklyHours] = useState('');
+  const [payWeekday, setPayWeekday] = useState(4); // Friday
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (/^\d+(\.\d+)?$/.test(weeklyHours) === false && mode === 'FLAT') {
+      setError('Weekly hours must be a decimal like 40 or 37.5.');
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await backfillHistory(employeeId, {
+        period_start: periodStart,
+        period_end: periodEnd,
+        mode,
+        pay_weekday: payWeekday,
+        weekly_hours: mode === 'FLAT' ? weeklyHours : undefined,
+      });
+      onDone(undefined, result);
+    } catch (err) {
+      setBusy(false);
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  return (
+    <form className="card" onSubmit={(e) => void submit(e)}>
+      <h3>Backfill historical pay runs</h3>
+      {employees.length === 0 ? (
+        <>
+          <p className="muted">Add an employee first.</p>
+          <button type="button" className="secondary" onClick={() => onDone()}>
+            Close
+          </button>
+        </>
+      ) : (
+        <>
+          <div className="grid3">
+            <label className="field">
+              <span>Employee *</span>
+              <select value={employeeId} onChange={(e) => setEmployeeId(e.target.value)}>
+                <option value="" disabled>
+                  Choose…
+                </option>
+                {employees.map((employee) => (
+                  <option key={employee.employee_id} value={employee.employee_id}>
+                    {employee.full_name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              <span>First week starts</span>
+              <input type="date" value={periodStart} onChange={(e) => setPeriodStart(e.target.value)} />
+            </label>
+            <label className="field">
+              <span>Last day</span>
+              <input type="date" value={periodEnd} onChange={(e) => setPeriodEnd(e.target.value)} />
+            </label>
+            <label className="field">
+              <span>Hours per week</span>
+              <select value={mode} onChange={(e) => setMode(e.target.value as 'SCHEDULE' | 'FLAT')}>
+                <option value="SCHEDULE">Default schedule</option>
+                <option value="FLAT">Flat total…</option>
+              </select>
+            </label>
+            {mode === 'FLAT' && (
+              <label className="field">
+                <span>Weekly hours *</span>
+                <input
+                  inputMode="decimal"
+                  placeholder="45"
+                  value={weeklyHours}
+                  onChange={(e) => setWeeklyHours(e.target.value)}
+                />
+              </label>
+            )}
+            <label className="field">
+              <span>Paid on</span>
+              <select value={String(payWeekday)} onChange={(e) => setPayWeekday(Number(e.target.value))}>
+                {['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].map(
+                  (name, index) => (
+                    <option key={name} value={index}>
+                      following {name}
+                    </option>
+                  ),
+                )}
+              </select>
+            </label>
+          </div>
+          <p className="muted">
+            One draft per week, hours seeded from the employee's default schedule. Weeks that overlap
+            existing runs are skipped. Drafts are not locked — review them, then use “Finalize pending”
+            which locks oldest-first so wage-base caps stay correct.
+          </p>
+          {error && <p className="error-banner">{error}</p>}
+          <div className="actions-bar">
+            <button type="submit" disabled={!employeeId || busy || periodEnd < periodStart}>
+              {busy ? 'Creating…' : 'Create drafts'}
+            </button>
+            <button type="button" className="secondary" onClick={() => onDone()}>
+              Cancel
+            </button>
+          </div>
+        </>
+      )}
+    </form>
+  );
 }
 
 function PayRunDetail({
