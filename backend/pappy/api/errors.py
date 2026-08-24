@@ -6,10 +6,16 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from pappy.calc.fit import MissingW4Error
+from pappy.mailer import MailerError
 from pappy.repo.exceptions import AlreadyExistsError, InvalidStateError, NotFoundError
 
 
 def register_error_handlers(app: FastAPI) -> None:
+    @app.exception_handler(MailerError)
+    async def _mailer(request: Request, exc: MailerError) -> JSONResponse:
+        # Email delivery is upstream of this API (SES); surface it as a
+        # bad gateway rather than pretending the reminder went out.
+        return JSONResponse(status_code=502, content={"detail": str(exc)})
     @app.exception_handler(NotFoundError)
     async def _not_found(request: Request, exc: NotFoundError) -> JSONResponse:
         return JSONResponse(status_code=404, content={"detail": str(exc)})

@@ -32,3 +32,13 @@ output "github_deploy_role_arn" {
   description = "IAM role ARN GitHub Actions assumes via OIDC to run deploys — set as the AWS_DEPLOY_ROLE_ARN repository variable."
   value       = module.cicd.github_deploy_role_arn
 }
+
+output "scheduler_function_name" {
+  description = "Scheduler Lambda — console Test with event {} fires a test reminder now."
+  value       = module.scheduling.scheduler_function_name
+}
+
+output "reminder_emails" {
+  description = "Reminder mail from -> to. Both SES identities must be confirmed (verification emails) before delivery works."
+  value       = "${var.reminder_from_email} -> ${var.reminder_to_email}"
+}

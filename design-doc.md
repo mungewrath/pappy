@@ -577,6 +577,8 @@ item**, not a generator.
     January someone must update the rate tables. The rollover checklist (§5.2)
     makes that explicit rather than leaving it as tribal knowledge.
 
+MU: of these, 4 (sick leave) and 5 (mileage) seem like good value-adds
+
 ---
 
 ## 11. Explicitly out of scope for v1

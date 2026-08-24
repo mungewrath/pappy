@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from boto3.dynamodb.conditions import Key
+
 if TYPE_CHECKING:
     from mypy_boto3_dynamodb.service_resource import Table
 
@@ -45,3 +47,15 @@ def get_or_none(table: Table, employer_id: str) -> Employer | None:
     )
     item = response.get("Item")
     return None if item is None else _from_item(item)
+
+
+def list_all(table: Table) -> list[Employer]:
+    """Every employer profile in the table.
+
+    Used by the scheduler Lambda (§6.6), which runs outside any request
+    context and so has no employer id handed to it — it must discover its
+    audience. A Scan filtered on the profile sort key is exactly right at
+    this deployment's scale: one household.
+    """
+    response = table.scan(FilterExpression=Key("sk").eq(keys.employer_profile_sk()))
+    return [_from_item(item) for item in response.get("Items", [])]

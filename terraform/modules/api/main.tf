@@ -49,6 +49,29 @@ resource "aws_iam_role_policy" "lambda_dynamodb" {
   })
 }
 
+# POST /reminders/test-send sends through the same SES path as the scheduled
+# reminders (§6.6) — send-as the verified sender, only to the verified
+# recipient identity (§7.4). The identities themselves are provisioned by
+# modules/scheduling.
+resource "aws_iam_role_policy" "lambda_ses" {
+  name = "${local.name_prefix}-api-ses"
+  role = aws_iam_role.lambda_exec.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = ["ses:SendEmail", "ses:SendRawEmail"]
+      Resource = [var.reminder_from_identity_arn, var.reminder_to_identity_arn]
+      Condition = {
+        "ForAllValues:StringEquals" = {
+          "ses:Recipients" = [var.reminder_to_email]
+        }
+      }
+    }]
+  })
+}
+
 resource "aws_cloudwatch_log_group" "api_lambda" {
   name              = "/aws/lambda/${local.name_prefix}-api"
   retention_in_days = var.log_retention_days
@@ -71,6 +94,11 @@ resource "aws_lambda_function" "api" {
     variables = {
       PAPPY_CORS_ALLOWED_ORIGINS = join(",", var.cors_allowed_origins)
       PAPPY_TABLE_NAME           = var.table_name
+      # The API's test-send endpoint shares the scheduler's mailer (§6.6):
+      # real SES delivery, same verified identities.
+      PAPPY_MAILER              = "ses"
+      PAPPY_REMINDER_FROM_EMAIL = var.reminder_from_email
+      PAPPY_REMINDER_TO_EMAIL   = var.reminder_to_email
     }
   }
 

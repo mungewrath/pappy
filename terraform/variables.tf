@@ -60,6 +60,25 @@ variable "owner_email" {
   default     = "matthew.unrath@gmail.com"
 }
 
+variable "reminder_from_email" {
+  description = <<-EOT
+    Address reminders are sent from (§6.6). AWS emails this address a
+    verification link that must be clicked before SES delivers anything.
+  EOT
+  type        = string
+  default     = "matthew.unrath@gmail.com"
+}
+
+variable "reminder_to_email" {
+  description = <<-EOT
+    Recipient of all reminder email — test mail lands here (SES sandbox mode
+    requires verified recipients, §2.2). Flip to the owner's address when
+    going live.
+  EOT
+  type        = string
+  default     = "mungewrath@gmail.com"
+}
+
 variable "github_repo" {
   description = "GitHub repository allowed to assume the CI/CD deploy role, as \"org/repo\"."
   type        = string
