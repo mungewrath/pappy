@@ -18,13 +18,29 @@ and the current rate table for the tax year (`RATES#<year>`, seeded by
 the YTD wage-base accumulator in the same transaction (§4) — so a run can
 never be finalized twice and wage caps can never double-count.
 
+Phase 6 (tax season, numbers-first): historical entry via
+`POST /payruns/employees/{id}/backfill` (weekly drafts across a past date
+range, schedule-seeded or flat-hours) plus `POST /payruns/finalize-pending`
+(locks drafts oldest-pay-date-first, stopping at the first failure — the only
+order that keeps wage-base caps correct when history arrives late, which is
+also enforced per-run at finalization). Year artifacts under `/tax-years/{year}`:
+quarterly 1040-ES figures (`/1040-es`), the Schedule H worksheet with its
+contributing runs (`/schedule-h`), W-2 box values (`/w2`), annual earnings
+summaries (`/earnings-summary`), and the SSA EFW2 upload file
+(`POST /efw2`, SSNs supplied transiently in the request body, never stored).
+All of it reads finalized runs' *stored* computations — no report depends on
+current rate tables.
+
 Reminders: EventBridge Scheduler fires `pappy.scheduler.handler` per cadence;
 each firing seeds the week's DRAFT pay runs (`WEEKLY_PAY`, §6.1),
 materializes an idempotent `ReminderInstance` keyed by due date
 (`REMINDER#<dueDate>#<rule>`), and emails it via SES (locally: logged).
 Unacknowledged reminders stay visible via `GET /reminders` until acknowledged.
 
-Not yet implemented: Adjustment entries, document generation (Phase 3+).
+Not yet implemented: Adjustment entries, document generation / PDFs and the
+document store (Phase 3+). The tax-year endpoints expose the numbers behind
+Schedule H / W-2 / earnings summaries; rendering them into official form PDFs
+lands with the document store.
 
 ## Sending a test reminder
 

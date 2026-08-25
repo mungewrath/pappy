@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
+from pappy.calc.efw2 import Efw2Error
 from pappy.calc.fit import MissingW4Error
 from pappy.mailer import MailerError
 from pappy.repo.exceptions import AlreadyExistsError, InvalidStateError, NotFoundError
@@ -34,3 +35,10 @@ def register_error_handlers(app: FastAPI) -> None:
         # defaulting (§5.3) — a 409, since the fix is adding the prerequisite
         # election, not resubmitting the same request.
         return JSONResponse(status_code=409, content={"detail": str(exc)})
+
+    @app.exception_handler(Efw2Error)
+    async def _efw2_error(request: Request, exc: Efw2Error) -> JSONResponse:
+        return JSONResponse(
+            status_code=400,
+            content={"detail": f"EFW2 generation failed: {exc}"},
+        )
