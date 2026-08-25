@@ -7,6 +7,7 @@
     | W-4 election | EMPLOYER#<id>   | EMPLOYEE#<empId>#W4#<effectiveDate>   |
     | PayRun   | EMPLOYER#<id>       | PAYRUN#<payDate>#<runId>              |
     | YTD accumulator | EMPLOYER#<id> | YTD#<taxYear>#<empId>                |
+    | Reminder | EMPLOYER#<id>       | REMINDER#<dueDate>#<ruleId>           |
     | RateTable | RATES#<taxYear>    | VERSION#<n>                           |
 
 Sort keys are date-prefixed and zero-padded ISO (`date.isoformat()` already
@@ -60,6 +61,21 @@ def payrun_sk_prefix(year: int | None = None) -> str:
 
 def ytd_sk(tax_year: int, employee_id: str) -> str:
     return f"YTD#{tax_year:04d}#{employee_id}"
+
+
+def reminder_sk(due_date: date, rule_id: str) -> str:
+    return f"REMINDER#{due_date.isoformat()}#{rule_id}"
+
+
+def reminder_sk_prefix() -> str:
+    return "REMINDER#"
+
+
+def reminder_sk_prefix_up_to(due_before: date) -> str:
+    """Sort-key range for "reminders due before X" (§4): ISO dates sort
+    lexicographically, so everything strictly before `due_before` shares one
+    `begins_with`-compatible prefix scan bounded by a range condition."""
+    return f"REMINDER#{due_before.isoformat()}"
 
 
 def rates_pk(tax_year: int) -> str:

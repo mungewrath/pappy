@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { User } from 'oidc-client-ts';
-import { ApiError, getEmployer, getHello } from './api/client';
+import { ApiError, getEmployer, getHello, listReminders } from './api/client';
 import type { Employer } from './api/types';
 import { Onboarding } from './components/Onboarding';
 import { EmployeesPanel } from './components/EmployeesPanel';
 import { EmployerPanel } from './components/EmployerPanel';
 import { PayRunsPanel } from './components/PayRunsPanel';
 import { TaxPanel } from './components/TaxPanel';
+import { RemindersPanel } from './components/RemindersPanel';
 import { getUser, handleRedirectCallback, isAuthConfigured, isSigninRedirect, login, logout } from './auth/cognito';
 
 type HelloState = { status: 'loading' } | { status: 'ok'; message: string } | { status: 'error'; message: string };
@@ -19,11 +20,12 @@ type ProfileState =
   | { status: 'missing' }
   | { status: 'ready'; employer: Employer }
   | { status: 'error'; message: string };
-type Tab = 'payruns' | 'tax' | 'employees' | 'employer';
+type Tab = 'payruns' | 'tax' | 'reminders' | 'employees' | 'employer';
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'payruns', label: 'Pay runs' },
   { id: 'tax', label: 'Tax' },
+  { id: 'reminders', label: 'Reminders' },
   { id: 'employees', label: 'Employees' },
   { id: 'employer', label: 'Employer' },
 ];
@@ -33,6 +35,25 @@ function App() {
   const [auth, setAuth] = useState<AuthState>({ status: 'loading' });
   const [profile, setProfile] = useState<ProfileState>({ status: 'loading' });
   const [tab, setTab] = useState<Tab>('payruns');
+  /** Open (unacknowledged) reminder count for the tab badge — the §6.6 nag,
+   * visible without visiting the page. */
+  const [openReminders, setOpenReminders] = useState<number | null>(null);
+
+  // Refreshed on load, on any tab switch (cheap single query), and after
+  // RemindersPanel acknowledges or fires anything via `refreshOpenReminders`.
+  const refreshOpenReminders = useCallback(() => {
+    listReminders(true)
+      .then((open) => setOpenReminders(open.length))
+      .catch(() => setOpenReminders(null));
+  }, []);
+
+  useEffect(() => {
+    if (auth.status !== 'signed-in' || profile.status !== 'ready') {
+      setOpenReminders(null);
+      return;
+    }
+    refreshOpenReminders();
+  }, [auth.status, profile.status, tab, refreshOpenReminders]);
 
   useEffect(() => {
     if (!isAuthConfigured()) {
@@ -162,12 +183,20 @@ function App() {
                 onClick={() => setTab(id)}
               >
                 {label}
+                {id === 'reminders' && openReminders !== null && openReminders > 0 && (
+                  <span className="badge nag" aria-label={`${openReminders} open reminder(s)`}>
+                    {openReminders}
+                  </span>
+                )}
               </button>
             ))}
           </nav>
 
           {tab === 'payruns' && <PayRunsPanel key="payruns" />}
           {tab === 'tax' && <TaxPanel key="tax" />}
+          {tab === 'reminders' && (
+            <RemindersPanel key="reminders" onDataChanged={refreshOpenReminders} />
+          )}
           {tab === 'employees' && <EmployeesPanel key="employees" />}
           {tab === 'employer' && (
             <EmployerPanel
@@ -179,7 +208,7 @@ function App() {
       )}
 
       <footer className="app-footer muted">
-        Pay stub PDFs, reminders, and the document store arrive in later phases (design-doc.md §9).
+        Pay stub PDFs and the document store arrive in later phases (design-doc.md §9).
       </footer>
     </>
   );

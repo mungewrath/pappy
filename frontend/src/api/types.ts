@@ -383,3 +383,65 @@ export interface FinalizePendingResult {
   finalized: string[];
   failed: FinalizeFailure[];
 }
+
+// --- Reminder (design-doc.md §6.6) -------------------------------------------
+
+export type ReminderRule =
+  | 'WEEKLY_PAY'
+  | 'QUARTERLY_TAX'
+  | 'WA_ESD_QUARTERLY'
+  | 'W2_EMPLOYEE'
+  | 'ANNUAL_ROLLOVER'
+  | 'SCHEDULE_H'
+  | 'IRS_GUIDANCE';
+
+export const REMINDER_RULES: readonly ReminderRule[] = [
+  'WEEKLY_PAY',
+  'QUARTERLY_TAX',
+  'WA_ESD_QUARTERLY',
+  'W2_EMPLOYEE',
+  'ANNUAL_ROLLOVER',
+  'SCHEDULE_H',
+  'IRS_GUIDANCE',
+];
+
+export const REMINDER_RULE_LABELS: Record<ReminderRule, string> = {
+  WEEKLY_PAY: 'Weekly pay review',
+  QUARTERLY_TAX: 'Quarterly estimated tax',
+  WA_ESD_QUARTERLY: 'WA ESD quarterly report',
+  W2_EMPLOYEE: 'W-2 to employee',
+  ANNUAL_ROLLOVER: 'Annual rate rollover',
+  SCHEDULE_H: 'Schedule H',
+  IRS_GUIDANCE: 'IRS guidance check',
+};
+
+export type ReminderStatus = 'PENDING' | 'SENT' | 'ACKNOWLEDGED';
+
+/** One occurrence of a rule, keyed by due date server-side; the composite
+ * id (`<dueDate>:<rule>`) is URL-safe and all the client needs. */
+export interface Reminder {
+  employer_id: string;
+  rule: ReminderRule;
+  due_date: string;
+  status: ReminderStatus;
+  subject: string;
+  body: string;
+  ses_message_id?: string | null;
+  created_at: string;
+  updated_at: string;
+  sent_at?: string | null;
+  acknowledged_at?: string | null;
+}
+
+export interface TestSendRequest {
+  rule: ReminderRule;
+  fire_date?: string | null;
+  due_date?: string | null;
+  create_drafts?: boolean;
+  send_email?: boolean;
+}
+
+export interface TestSendResponse {
+  created: Reminder[];
+  email_transport: 'ses' | 'log';
+}

@@ -142,6 +142,20 @@ code {
   border-bottom-color: var(--accent);
 }
 
+/* Unacknowledged-reminder count on the Reminders tab (§6.6: reminders nag
+ * until acknowledged — surface that from anywhere in the app). */
+.badge.nag {
+  display: inline-block;
+  margin-left: 0.4rem;
+  padding: 0.05rem 0.45rem;
+  border-radius: 999px;
+  background: #d64545;
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
 /* --- Buttons ---------------------------------------------------------------- */
 
 button {
@@ -265,6 +279,15 @@ fieldset.address {
 
 .saved-note {
   color: #2e9e5b;
+}
+
+.notice {
+  border: 1px solid #2e9e5b;
+  border-radius: 7px;
+  background: rgba(46, 158, 91, 0.08);
+  color: #2e9e5b;
+  padding: 0.6rem 0.8rem;
+  overflow-wrap: anywhere;
 }
 
 .error-banner {

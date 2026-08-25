@@ -7,16 +7,16 @@ imported, and it's never engaged locally.
 
 ## What's implemented
 
-Phases 1–2 of §9: the calculation engine (gross pay + overtime premium
+Phases 1–4 of §9: the calculation engine (gross pay + overtime premium
 breakdown §5.4, Pub. 15-T federal withholding §5.3, FICA/WA PFML/WA Cares
-withholding and employer accruals §5.1) plus the full core loop — `Employer`,
+withholding and employer accruals §5.1), the full core loop — `Employer`,
 `Employee`, effective-dated W-4 elections, and the `PayRun` lifecycle
-(create → auto-seeded from the default schedule → edit hours → finalize).
-Finalizing resolves the W-4 in effect on the pay date and the current rate
-table for the tax year (`RATES#<year>`, seeded by `pappy.repo.seed`), stores
-the complete computation on the run, and advances the YTD wage-base
-accumulator in the same transaction (§4) — so a run can never be finalized
-twice and wage caps can never double-count.
+(create → auto-seeded from the default schedule → edit hours → finalize) —
+and reminders (§6.6). Finalizing resolves the W-4 in effect on the pay date
+and the current rate table for the tax year (`RATES#<year>`, seeded by
+`pappy.repo.seed`), stores the complete computation on the run, and advances
+the YTD wage-base accumulator in the same transaction (§4) — so a run can
+never be finalized twice and wage caps can never double-count.
 
 Phase 6 (tax season, numbers-first): historical entry via
 `POST /payruns/employees/{id}/backfill` (weekly drafts across a past date
@@ -31,10 +31,48 @@ summaries (`/earnings-summary`), and the SSA EFW2 upload file
 All of it reads finalized runs' *stored* computations — no report depends on
 current rate tables.
 
+Reminders: EventBridge Scheduler fires `pappy.scheduler.handler` per cadence;
+each firing seeds the week's DRAFT pay runs (`WEEKLY_PAY`, §6.1),
+materializes an idempotent `ReminderInstance` keyed by due date
+(`REMINDER#<dueDate>#<rule>`), and emails it via SES (locally: logged).
+Unacknowledged reminders stay visible via `GET /reminders` until acknowledged.
+
 Not yet implemented: Adjustment entries, document generation / PDFs and the
-document store (Phase 3+), reminders (Phase 4). The tax-year endpoints expose
-the numbers behind Schedule H / W-2 / earnings summaries; rendering them into
-official form PDFs lands with the document store.
+document store (Phase 3+). The tax-year endpoints expose the numbers behind
+Schedule H / W-2 / earnings summaries; rendering them into official form PDFs
+lands with the document store.
+
+## Sending a test reminder
+
+Three equivalent triggers — all run the same code path
+(`pappy.services.scheduler_service.run_rule`) with the same idempotency:
+
+1. **API** (works locally too):
+
+   ```sh
+   curl -X POST localhost:8000/reminders/test-send \
+     -H 'content-type: application/json' -H "authorization: Bearer $TOKEN" \
+     -d '{"rule": "WEEKLY_PAY", "fire_date": "2026-08-28"}'
+   ```
+
+   Body fields are all optional: `rule` (any `ReminderRule`),
+   `fire_date`/`due_date`, `create_drafts` (default true), `send_email`
+   (default true; set false while SES identities are unverified). There's a
+   matching card in the frontend's **Reminders** tab.
+
+2. **Lambda console**: open the function named by the
+   `scheduler_function_name` Terraform output → **Test** → event `{}` runs
+   the weekly loop for today. `{"rule": "SCHEDULE_H"}` fires any other rule;
+   add `"fire_date": "YYYY-MM-DD"` to pin the date.
+
+3. **EventBridge console**: create a one-off Schedule targeting that
+   function with input `{"rule": "<RULE>"}` at any time.
+
+Email routing is configured by `PAPPY_REMINDER_FROM_EMAIL`,
+`PAPPY_REMINDER_TO_EMAIL`, and `PAPPY_MAILER` (`ses` in deployments, `log`
+locally — logged mail shows up in `docker compose logs backend`). In SES
+sandbox mode both addresses must be confirmed identities; Terraform creates
+the verification requests on apply.
 
 ## Local development
 

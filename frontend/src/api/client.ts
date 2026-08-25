@@ -31,7 +31,10 @@ import type {
   PayRun,
   PayRunCreate,
   QuarterlyEstimates,
+  Reminder,
   ScheduleHWorksheet,
+  TestSendRequest,
+  TestSendResponse,
   W4Election,
   W2Summary,
 } from './types';
@@ -208,6 +211,23 @@ export function backfillHistory(
   );
 }
 
+// --- Reminders (design-doc.md §6.6) ------------------------------------------
+
+const reminderPath = (reminderId?: string, suffix?: string): string =>
+  `/reminders${reminderId ? `/${encodeURIComponent(reminderId)}` : ''}${suffix ?? ''}`;
+
+/** Open reminders by default; `open_only: false` includes acknowledged history. */
+export function listReminders(openOnly = true): Promise<Reminder[]> {
+  return request<Reminder[]>(`${reminderPath()}?open_only=${openOnly}`);
+}
+
+export function acknowledgeReminder(reminderId: string): Promise<Reminder> {
+  return request<Reminder>(reminderPath(reminderId, '/acknowledge'), {
+    method: 'POST',
+    body: {},
+  });
+}
+
 /** Finalizes pending drafts oldest-pay-date-first. Stops at the first
  * failure so wage-base caps stay correct; the rest stay pending. */
 export function finalizePendingRuns(params?: { year?: number }): Promise<FinalizePendingResult> {
@@ -237,6 +257,15 @@ export function getW2Summaries(taxYear: number): Promise<W2Summary[]> {
 
 export function getEarningsSummaries(taxYear: number): Promise<EarningsSummary[]> {
   return request<EarningsSummary[]>(taxYearPath(taxYear, '/earnings-summary'));
+}
+
+/** Fires a reminder rule right now — the same code path as the scheduled
+ * Lambda, including idempotency per due date. */
+export function testSendReminder(data: TestSendRequest): Promise<TestSendResponse> {
+  return request<TestSendResponse>(reminderPath(undefined, '/test-send'), {
+    method: 'POST',
+    body: data,
+  });
 }
 
 /** Downloads the SSA EFW2 upload file. SSNs are sent transiently for this
