@@ -4,9 +4,11 @@ Pure calculation, no AWS imports. The service layer reduces each finalized
 run to a `RunContribution` (its year-artifact lines); this module folds
 those into quarterly 1040-ES figures and full-year totals.
 
-Quarters follow the calendar and runs are attributed by *pay date* (cash
-basis): the money became owed when the paycheck was cut, which is how the
-IRS expects estimated payments to track liability.
+Runs are attributed by *pay date* (cash basis): the money became owed when
+the paycheck was cut, which is how the IRS expects estimated payments to
+track liability. The 1040-ES "quarters" are the IRS payment periods, not
+calendar quarters — Q2 covers only April and May, Q3 June through August,
+and Q4 September through December (see `_ES_PERIOD_BOUNDS`).
 
 Import discipline: `pappy.models.payrun` imports this package's siblings,
 so calc must not import it back — hence the light-weight `RunContribution`
@@ -132,6 +134,18 @@ class QuarterTotals(BaseModel):
     ytd_total: Money
 
 
+# The 1040-ES payment periods (IRS Form 1040-ES, "payment due dates"
+# worksheet): deliberately uneven. Q2 is only two months because Q3
+# absorbs June, and Q4 runs four months to year end.
+_ES_PERIOD_BOUNDS: dict[int, tuple[tuple[int, int], tuple[int, int]]] = {
+    1: ((1, 1), (3, 31)),
+    2: ((4, 1), (5, 31)),
+    3: ((6, 1), (8, 31)),
+    4: ((9, 1), (12, 31)),
+}
+
+# Calendar quarters — used for display groupings like the earnings
+# summary's quarterly gross columns, not for 1040-ES attribution.
 _QUARTER_BOUNDS: dict[int, tuple[tuple[int, int], tuple[int, int]]] = {
     1: ((1, 1), (3, 31)),
     2: ((4, 1), (6, 30)),
@@ -151,8 +165,34 @@ _QUARTER_DUE: dict[int, tuple[int, int]] = {
 }
 
 
-def quarter_of(pay_date: date) -> int:
+def es_period_of(pay_date: date) -> int:
+    """The 1040-ES payment period a pay date belongs to (1-4)."""
+    month = pay_date.month
+    if month <= 3:
+        return 1
+    if month <= 5:
+        return 2
+    if month <= 8:
+        return 3
+    return 4
+
+
+def calendar_quarter_of(pay_date: date) -> int:
     return (pay_date.month - 1) // 3 + 1
+
+
+def quarter_of(pay_date: date) -> int:
+    """Calendar quarter — informational groupings only; 1040-ES uses
+    `es_period_of` because its periods are not calendar quarters."""
+    return calendar_quarter_of(pay_date)
+
+
+def es_period_bounds(tax_year: int, period: int) -> tuple[date, date]:
+    (start_month, start_day), (end_month, end_day) = _ES_PERIOD_BOUNDS[period]
+    return (
+        date(tax_year, start_month, start_day),
+        date(tax_year, end_month, end_day),
+    )
 
 
 def quarter_bounds(tax_year: int, quarter: int) -> tuple[date, date]:
@@ -178,12 +218,13 @@ def aggregate_quarterly(
     contributions: list[RunContribution], *, tax_year: int
 ) -> list[QuarterTotals]:
     """Four rows, always — quiet quarters stay visible at zero so the
-    year's payment plan reads as a whole."""
+    year's payment plan reads as a whole. Rows are the 1040-ES payment
+    periods (uneven — see `_ES_PERIOD_BOUNDS`), not calendar quarters."""
     buckets: dict[int, list[RunContribution]] = {q: [] for q in range(1, 5)}
     for contribution in contributions:
         if contribution.pay_date.year != tax_year:
             continue
-        buckets[quarter_of(contribution.pay_date)].append(contribution)
+        buckets[es_period_of(contribution.pay_date)].append(contribution)
 
     results: list[QuarterTotals] = []
     running = Money(0)

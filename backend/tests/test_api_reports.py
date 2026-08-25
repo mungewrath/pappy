@@ -107,6 +107,15 @@ def test_quarterly_estimates(client: TestClient, seeded_rates: object) -> None:
     assert str(q2["total"]) == "289.41"
     assert str(q2["ytd_total"]) == "578.82"
     assert q4["due_date"] == "2027-01-15"
+    # ES payment periods, not calendar quarters: Q2 ends May 31.
+    assert q1["period_start"] == "2026-01-01"
+    assert q1["period_end"] == "2026-03-31"
+    assert q2["period_start"] == "2026-04-01"
+    assert q2["period_end"] == "2026-05-31"
+    assert _q3["period_start"] == "2026-06-01"
+    assert _q3["period_end"] == "2026-08-31"
+    assert q4["period_start"] == "2026-09-01"
+    assert q4["period_end"] == "2026-12-31"
 
     assert str(body["grand_total"]) == "578.82"
 

@@ -20,8 +20,8 @@ from pappy.calc.payroll import EmployeeWithholding, EmployerAccruals
 from pappy.calc.tax_year import (
     RunContribution,
     aggregate_quarterly,
+    es_period_bounds,
     estimate_due_date,
-    quarter_bounds,
     quarter_of,
 )
 from pappy.models.common import PayRunStatus
@@ -98,8 +98,8 @@ def quarterly_estimates(table: Table, employer_id: str, tax_year: int) -> Quarte
     estimates = [
         QuarterEstimate(
             quarter=q.quarter,
-            period_start=quarter_bounds(tax_year, q.quarter)[0],
-            period_end=quarter_bounds(tax_year, q.quarter)[1],
+            period_start=es_period_bounds(tax_year, q.quarter)[0],
+            period_end=es_period_bounds(tax_year, q.quarter)[1],
             due_date=estimate_due_date(tax_year, q.quarter),
             pay_run_count=q.totals.pay_run_count,
             gross=q.totals.gross,

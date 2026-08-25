@@ -33,7 +33,10 @@ class QuarterEstimate(BaseModel):
     deliberately absent — they are not part of 1040-ES.
 
     Runs are attributed to quarters by *pay date* (cash basis), matching
-    when the money left the paycheck and became owed to the IRS.
+    when the money left the paycheck and became owed to the IRS. The
+    periods are the 1040-ES payment windows, which are not calendar
+    quarters: Q2 covers only April and May, Q3 June through August, and
+    Q4 September through December.
     """
 
     quarter: int = Field(ge=1, le=4)

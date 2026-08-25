@@ -12,8 +12,9 @@ from pappy.calc.tax_year import (
     RunContribution,
     aggregate_quarterly,
     aggregate_year,
+    es_period_bounds,
+    es_period_of,
     estimate_due_date,
-    quarter_bounds,
     quarter_of,
 )
 from pappy.money import Money
@@ -39,11 +40,42 @@ def make_contribution(
     )
 
 
-def test_quarter_of_and_bounds() -> None:
+def test_es_period_of_and_bounds() -> None:
+    # The 1040-ES payment periods are deliberately uneven: Q2 is only
+    # April and May, Q3 absorbs June, Q4 runs four months to year end.
+    assert es_period_of(date(2026, 1, 16)) == 1
+    assert es_period_of(date(2026, 3, 31)) == 1
+    assert es_period_of(date(2026, 4, 17)) == 2
+    assert es_period_of(date(2026, 5, 31)) == 2
+    assert es_period_of(date(2026, 6, 1)) == 3
+    assert es_period_of(date(2026, 8, 31)) == 3
+    assert es_period_of(date(2026, 9, 4)) == 4
+    assert es_period_of(date(2026, 12, 31)) == 4
+
+    assert es_period_bounds(2026, 2) == (date(2026, 4, 1), date(2026, 5, 31))
+    assert es_period_bounds(2026, 3) == (date(2026, 6, 1), date(2026, 8, 31))
+    assert es_period_bounds(2026, 4) == (date(2026, 9, 1), date(2026, 12, 31))
+
+
+def test_quarter_of_stays_calendar() -> None:
+    # Calendar quarters remain available for informational groupings.
     assert quarter_of(date(2026, 1, 16)) == 1
     assert quarter_of(date(2026, 4, 17)) == 2
     assert quarter_of(date(2026, 12, 31)) == 4
-    assert quarter_bounds(2026, 2) == (date(2026, 4, 1), date(2026, 6, 30))
+
+
+def test_june_and_september_runs_leave_quarters_two_and_three() -> None:
+    # A June paycheck belongs to ES period 3 (paid Sep 15), a September
+    # paycheck to period 4 — never to the Q2/Q3 calendar buckets.
+    june = make_contribution(date(2026, 6, 19))
+    september = make_contribution(date(2026, 9, 18))
+
+    quarters = aggregate_quarterly([june, september], tax_year=2026)
+
+    assert quarters[0].totals.pay_run_count == 0
+    assert quarters[1].totals.pay_run_count == 0
+    assert quarters[2].totals.pay_run_count == 1
+    assert quarters[3].totals.pay_run_count == 1
 
 
 def test_due_dates() -> None:
