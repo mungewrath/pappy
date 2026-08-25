@@ -33,6 +33,11 @@ output "github_deploy_role_arn" {
   value       = module.cicd.github_deploy_role_arn
 }
 
+output "dynamodb_table_name" {
+  description = "Single-table DynamoDB table — target of the rate-table seeder run by scripts/deploy.sh."
+  value       = module.data.table_name
+}
+
 output "scheduler_function_name" {
   description = "Scheduler Lambda — console Test with event {} fires a test reminder now."
   value       = module.scheduling.scheduler_function_name
