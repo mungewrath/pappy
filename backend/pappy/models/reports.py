@@ -167,9 +167,9 @@ class QuarterGross(BaseModel):
 class EarningsSummary(BaseModel):
     """Annual earnings summary for one employee (§5.4, §6.6).
 
-    Carries the overtime-premium breakdown required of the year view, every
-    withholding line as a year total with YTD semantics, employer accruals,
-    quarterly gross progression, and wage-base consumption.
+    Carries the overtime-premium and extra-pay breakdown required of the year
+    view, every withholding line as a year total with YTD semantics, employer
+    accruals, quarterly gross progression, and wage-base consumption.
     """
 
     tax_year: int
@@ -183,6 +183,7 @@ class EarningsSummary(BaseModel):
     hours_unpaid: StrictDecimal
     straight_time_pay: Money
     overtime_premium_pay: Money
+    extra_pay: Money
     gross: Money
     withholding: EmployeeWithholding
     net_pay: Money

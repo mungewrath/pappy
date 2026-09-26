@@ -29,9 +29,9 @@ import type {
   EmployerCreate,
   EmployerUpdate,
   FinalizePendingResult,
-  HourLine,
   PayRun,
   PayRunCreate,
+  PayRunDraftUpdate,
   QuarterlyEstimates,
   Reminder,
   ScheduleHWorksheet,
@@ -183,15 +183,14 @@ export function getPayRun(runId: string): Promise<PayRun> {
   return request<PayRun>(payRunPath(runId));
 }
 
-/** Replaces a DRAFT run's hour lines; gross is recomputed server-side. */
-export function updatePayRunHours(
+/** Replaces a DRAFT run's hour lines and extra pay lines; gross is recomputed
+ * server-side. Both lists are always sent — a replace that omitted either would
+ * silently drop the other. */
+export function updatePayRunDraft(
   runId: string,
-  hourLines: HourLine[],
+  data: PayRunDraftUpdate,
 ): Promise<PayRun> {
-  return request<PayRun>(payRunPath(runId, '/hours'), {
-    method: 'PUT',
-    body: { hour_lines: hourLines },
-  });
+  return request<PayRun>(payRunPath(runId), { method: 'PUT', body: data });
 }
 
 export function finalizePayRun(runId: string): Promise<PayRun> {

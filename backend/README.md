@@ -43,7 +43,8 @@ materializes an idempotent `ReminderInstance` keyed by due date
 (`REMINDER#<dueDate>#<rule>`), and emails it via SES (locally: logged).
 Unacknowledged reminders stay visible via `GET /reminders` until acknowledged.
 
-Not yet implemented: Adjustment entries and the later document generators for
+Not yet implemented: Adjustment entries (post-finalization corrections and
+non-taxable reimbursements), and the later document generators for
 FSA receipts, Schedule H, W-2/W-3, 1040-ES, and annual earnings summaries. The
 tax-year endpoints already expose the numbers behind those future artifacts.
 

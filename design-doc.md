@@ -181,8 +181,10 @@ line, net pay, employer tax accruals, and `rateTableVersion`.
 **HourLine** — date, hours, category (`REGULAR`, `OVERTIME`, `PTO`, `HOLIDAY`,
 `SICK`, `UNPAID`). Auto-seeded from the default schedule, then editable.
 
-**Adjustment** — post-finalization correction, or a non-hours item: bonus, mileage
-reimbursement (non-taxable, tracked separately), advance repayment.
+**Adjustment** — post-finalization correction, or a non-hours item: mileage
+reimbursement (non-taxable, tracked separately), advance repayment. A bonus is
+*not* an adjustment when it is known before the run is locked: it is a flat extra
+pay line on the `PayRun` (§5.1), editable like hours while the run is a DRAFT.
 
 **Document** — generated artifact. Type (`PAY_STUB`, `FSA_RECEIPT`, `SCHEDULE_H`,
 `W2`, `W3`, `FORM_1040ES`, `EARNINGS_SUMMARY`), tax year, S3 key, SHA-256, generated-at, and the set of
@@ -258,10 +260,18 @@ the year *can* be recomputed from scratch as a consistency check (see §8).
 
 For each pay run, given hour lines and the employee's elections:
 
-1. **Gross** = Σ(hours × applicable rate). Overtime at 1.5× for hours over 40 in a
-   workweek — note that the FLSA domestic-service exemption from overtime applies
-   only to live-in employees, and Washington has its own rules; the policy is
-   configurable per employee with a default of "overtime applies."
+1. **Gross** = Σ(hours × applicable rate) + Σ(extra pay lines). Overtime at 1.5× for
+   hours over 40 in a workweek — note that the FLSA domestic-service exemption from
+   overtime applies only to live-in employees, and Washington has its own rules; the
+   policy is configurable per employee with a default of "overtime applies."
+   **Extra pay lines** are flat amounts with a note (a bonus, a gift) rather than
+   hours × rate. They are taxable wages like any other: nothing about the amount is
+   derived from hours, and it feeds every base in steps 2 and 4. For federal income
+   tax they follow Pub. 15 §7 "supplemental wages combined with regular wages" — the
+   whole payment is annualized as one periodic wage, which for a lump sum small
+   relative to the period's regular wages withholds *less* federal tax than the §7
+   method 1a flat 22%. (The flat rate is the better choice for a bonus large enough
+   that annualizing it would jump a bracket; not implemented.)
 2. **Employee withholding**
    - Social Security: `rate × min(gross, remaining wage base)`
    - Medicare: `rate × gross`, plus Additional Medicare above the threshold
@@ -328,10 +338,10 @@ That has consequences worth stating up front:
 
 ### 5.4 Pay stub
 
-Rendered per finalized run: period, pay date, hours by category, rate, gross,
-each withholding line with current and YTD columns, net, and employer info.
-Washington requires an itemized statement each pay period; the YTD columns also
-make the FSA receipt trivially defensible.
+Rendered per finalized run: period, pay date, hours by category, rate, any extra pay
+lines with their notes, gross, each withholding line with current and YTD columns,
+net, and employer info. Washington requires an itemized statement each pay period;
+the YTD columns also make the FSA receipt trivially defensible.
 
 **Overtime premium breakdown.** Overtime is shown as two explicit lines rather than
 one blended figure — straight-time hours at the base rate, and the 0.5× premium on

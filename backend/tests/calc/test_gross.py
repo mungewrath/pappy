@@ -1,14 +1,21 @@
 from datetime import date
 from decimal import Decimal
 
+import pytest
+from pydantic import ValidationError
+
 from pappy.calc.gross import compute_gross_pay
 from pappy.models.common import HourCategory, OvertimePolicy
-from pappy.models.payrun import HourLine
+from pappy.models.payrun import ExtraPayLine, HourLine
 from pappy.money import Money
 
 
 def _line(day: int, hours: str, category: HourCategory = HourCategory.REGULAR) -> HourLine:
     return HourLine(work_date=date(2026, 1, day), hours=Decimal(hours), category=category)
+
+
+def _bonus(amount: str, note: str = "Bonus") -> ExtraPayLine:
+    return ExtraPayLine(note=note, amount=Money(amount))
 
 
 def test_no_overtime_under_40_hours() -> None:
@@ -88,3 +95,73 @@ def test_no_hours_gives_zero_gross() -> None:
     )
     assert result.gross == Money("0.00")
     assert result.effective_overtime_rate is None
+
+
+def test_extra_pay_adds_to_gross() -> None:
+    lines = [_line(d, "9") for d in range(1, 6)]  # 5 x 9 = 45
+    result = compute_gross_pay(
+        hour_lines=lines,
+        hourly_rate=Decimal("25.00"),
+        overtime_policy=OvertimePolicy.APPLIES,
+        extra_pay_lines=[_bonus("250.00", "Holiday bonus")],
+    )
+    # hours are untouched by the flat amount
+    assert result.regular_hours == Decimal(45)
+    assert result.overtime_hours == Decimal(5)
+    assert result.straight_time_pay == Money("1125.00")
+    assert result.overtime_premium_pay == Money("62.50")
+    # 1125.00 + 62.50 + 250.00
+    assert result.extra_pay == Money("250.00")
+    assert result.gross == Money("1437.50")
+
+
+def test_extra_pay_is_independent_of_hours() -> None:
+    """A bonus on a zero-hour run is still gross — it is not hours-derived."""
+    result = compute_gross_pay(
+        hour_lines=[],
+        hourly_rate=Decimal("25.00"),
+        overtime_policy=OvertimePolicy.APPLIES,
+        extra_pay_lines=[_bonus("250.00")],
+    )
+    assert result.straight_time_pay == Money("0.00")
+    assert result.extra_pay == Money("250.00")
+    assert result.gross == Money("250.00")
+
+
+def test_several_extra_pay_lines_sum_into_one_gross_line() -> None:
+    result = compute_gross_pay(
+        hour_lines=[_line(1, "8")],
+        hourly_rate=Decimal("20.00"),
+        overtime_policy=OvertimePolicy.APPLIES,
+        extra_pay_lines=[_bonus("250.00", "Bonus"), _bonus("100.50", "Referral")],
+    )
+    assert result.extra_pay == Money("350.50")
+    assert result.gross == Money("510.50")  # 160.00 + 350.50
+
+
+def test_no_extra_pay_lines_reproduce_the_hours_only_gross() -> None:
+    lines = [_line(d, "9") for d in range(1, 6)]
+    kwargs = {
+        "hour_lines": lines,
+        "hourly_rate": Decimal("25.00"),
+        "overtime_policy": OvertimePolicy.APPLIES,
+    }
+    with_empty = compute_gross_pay(**kwargs, extra_pay_lines=[])  # type: ignore[arg-type]
+    without = compute_gross_pay(**kwargs)  # type: ignore[arg-type]
+    assert with_empty.extra_pay == Money("0.00")
+    assert with_empty.gross == without.gross == Money("1187.50")
+
+
+def test_extra_pay_rejected_when_blank_note() -> None:
+    with pytest.raises(ValidationError):
+        ExtraPayLine(note="   ", amount=Money("250.00"))
+
+
+def test_extra_pay_rejected_when_amount_negative() -> None:
+    with pytest.raises(ValidationError):
+        ExtraPayLine(note="Clawback", amount=Money("-1.00"))
+
+
+def test_extra_pay_rejects_float_amount() -> None:
+    with pytest.raises(TypeError):
+        ExtraPayLine(note="Bonus", amount=250.5)  # type: ignore[arg-type]

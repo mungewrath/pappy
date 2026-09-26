@@ -9,11 +9,12 @@ import {
   getPayRun,
   listEmployees,
   listPayRuns,
-  updatePayRunHours,
+  updatePayRunDraft,
 } from '../api/client';
 import type {
   BackfillResult,
   Employee,
+  ExtraPayLine,
   HourLine,
   HourCategory,
   PayrollResult,
@@ -25,6 +26,7 @@ import {
   formatDateTime,
   formatHours,
   formatMoney,
+  isZeroAmount,
   todayIso,
 } from '../format';
 
@@ -523,6 +525,7 @@ function PayRunDetail({
 }) {
   const [run, setRun] = useState<PayRun | null>(null);
   const [lines, setLines] = useState<HourLine[] | null>(null);
+  const [extraPay, setExtraPay] = useState<ExtraPayLine[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [checkingPending, setCheckingPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -534,6 +537,7 @@ function PayRunDetail({
       .then((result) => {
         setRun(result);
         setLines(result.hour_lines);
+        setExtraPay(result.extra_pay_lines);
         setError(null);
       })
       .catch((err: unknown) =>
@@ -549,6 +553,7 @@ function PayRunDetail({
 
   const isDraft = run.status === 'DRAFT';
   const editingLines = lines ?? [];
+  const editingExtraPay = extraPay ?? [];
 
   const validateAndSave = async () => {
     for (const line of editingLines) {
@@ -561,11 +566,25 @@ function PayRunDetail({
         return;
       }
     }
+    for (const line of editingExtraPay) {
+      if (!line.note.trim()) {
+        setError('Every extra pay line needs a note — it shows on the pay stub.');
+        return;
+      }
+      if (!/^\d+(\.\d+)?$/.test(line.amount)) {
+        setError(`Invalid amount "${line.amount}" — use a decimal like 250 or 250.00.`);
+        return;
+      }
+    }
     setBusy(true);
     try {
-      const updated = await updatePayRunHours(runId, editingLines);
+      const updated = await updatePayRunDraft(runId, {
+        hour_lines: editingLines,
+        extra_pay_lines: editingExtraPay,
+      });
       setRun(updated);
       setLines(updated.hour_lines);
+      setExtraPay(updated.extra_pay_lines);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -615,6 +634,11 @@ function PayRunDetail({
   const setLine = (index: number, patch: Partial<HourLine>) =>
     setLines((prev) => prev!.map((line, i) => (i === index ? { ...line, ...patch } : line)));
 
+  const setExtraLine = (index: number, patch: Partial<ExtraPayLine>) =>
+    setExtraPay((prev) =>
+      (prev ?? []).map((line, i) => (i === index ? { ...line, ...patch } : line)),
+    );
+
   const addLine = () => {
     const lastDate =
       editingLines.length > 0 ? editingLines[editingLines.length - 1].work_date : run.period_start;
@@ -646,6 +670,12 @@ function PayRunDetail({
       setGeneratingStub(false);
     }
   };
+  
+  const addExtraLine = () =>
+    setExtraPay((prev) => [
+      ...(prev ?? []),
+      { line_id: crypto.randomUUID(), note: '', amount: '' },
+    ]);
 
   return (
     <div className="card left">
@@ -730,13 +760,81 @@ function PayRunDetail({
         <p className="muted">No hour lines yet.</p>
       )}
 
+      <h3>Extra pay</h3>
+      <p className="muted">
+        A flat amount on top of the hours — a bonus or gift. It is added straight to
+        gross, not calculated from hours, and is taxed like any other wage.
+      </p>
+      {(editingExtraPay.length > 0 || !isDraft) && (
+        <table className="data">
+          <thead>
+            <tr>
+              <th>Note</th>
+              <th className="num">Amount</th>
+              {isDraft && <th></th>}
+            </tr>
+          </thead>
+          <tbody>
+            {editingExtraPay.map((line, index) => (
+              <tr key={line.line_id}>
+                <td>
+                  {isDraft ? (
+                    <input
+                      value={line.note}
+                      maxLength={120}
+                      placeholder="Holiday bonus"
+                      onChange={(e) => setExtraLine(index, { note: e.target.value })}
+                    />
+                  ) : (
+                    line.note
+                  )}
+                </td>
+                <td className="num">
+                  {isDraft ? (
+                    <input
+                      inputMode="decimal"
+                      size={8}
+                      value={line.amount}
+                      placeholder="250.00"
+                      onChange={(e) => setExtraLine(index, { amount: e.target.value })}
+                    />
+                  ) : (
+                    formatMoney(line.amount)
+                  )}
+                </td>
+                {isDraft && (
+                  <td>
+                    <button
+                      type="button"
+                      className="danger"
+                      aria-label="Remove extra pay line"
+                      onClick={() =>
+                        setExtraPay((prev) => (prev ?? []).filter((_, i) => i !== index))
+                      }
+                    >
+                      ✕
+                    </button>
+                  </td>
+                )}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      {editingExtraPay.length === 0 && isDraft && (
+        <p className="muted">No extra pay on this run.</p>
+      )}
+
       {isDraft && (
         <div className="actions-bar">
           <button type="button" disabled={busy || checkingPending} onClick={addLine}>
             Add line
           </button>
+          <button type="button" disabled={busy || checkingPending} onClick={addExtraLine}>
+            Add extra pay
+          </button>
           <button type="button" disabled={busy || checkingPending || lines === null} onClick={() => void validateAndSave()}>
-            {busy ? 'Saving…' : 'Save hours'}
+            {busy ? 'Saving…' : 'Save changes'}
           </button>
           <button type="button" className="primary" disabled={busy || checkingPending} onClick={() => void finalize()}>
             {checkingPending ? 'Checking…' : busy ? 'Finalizing…' : 'Finalize…'}
@@ -797,7 +895,22 @@ function GrossBreakdown({ run }: { run: PayRun }) {
         <tr>
           <td>Unpaid hours</td>
           <td className="num">{formatHours(g.unpaid_hours)}</td>
-          <td>
+          <td></td>
+          <td className="num"></td>
+        </tr>
+        {!isZeroAmount(g.extra_pay) && (
+          <tr>
+            <td>
+              Extra pay
+              {run.extra_pay_lines.length > 1 ? ` (${run.extra_pay_lines.length} lines)` : ''}
+            </td>
+            <td className="num">—</td>
+            <td>Lump sum</td>
+            <td className="num">{formatMoney(g.extra_pay)}</td>
+          </tr>
+        )}
+        <tr>
+          <td colSpan={3}>
             <strong>Gross</strong>
           </td>
           <td className="num">

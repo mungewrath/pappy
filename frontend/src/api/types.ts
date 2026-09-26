@@ -194,14 +194,31 @@ export interface HourLine {
   category: HourCategory;
 }
 
+/** A flat amount of extra pay on a run — a bonus, gift, or similar. Entered
+ * directly rather than derived from hours, and taxable like any other wage
+ * (design-doc.md §5.4). */
+export interface ExtraPayLine {
+  line_id: string;
+  note: string;
+  amount: DecimalString;
+}
+
 export interface PayRunCreate {
   period_start: string;
   period_end: string;
   pay_date: string;
   hour_lines?: HourLine[];
+  extra_pay_lines?: ExtraPayLine[];
 }
 
-/** Gross pay with the overtime premium broken out (design-doc.md §5.4). */
+/** The whole DRAFT-editable surface of a run, sent as one replace (PUT). */
+export interface PayRunDraftUpdate {
+  hour_lines: HourLine[];
+  extra_pay_lines: ExtraPayLine[];
+}
+
+/** Gross pay with the overtime premium and any extra pay broken out
+ * (design-doc.md §5.4). */
 export interface GrossPayResult {
   regular_hours: DecimalString;
   overtime_hours: DecimalString;
@@ -210,6 +227,8 @@ export interface GrossPayResult {
   hourly_rate: DecimalString;
   straight_time_pay: DecimalString;
   overtime_premium_pay: DecimalString;
+  /** Sum of the run's extra pay lines; "0.00" when there are none. */
+  extra_pay: DecimalString;
   gross: DecimalString;
 }
 
@@ -222,6 +241,7 @@ export interface PayRun {
   period_end: string;
   pay_date: string;
   hour_lines: HourLine[];
+  extra_pay_lines: ExtraPayLine[];
   gross: GrossPayResult;
   /** Present only on FINALIZED runs — the complete computation stored at
    * finalization (design-doc.md §3.1, "compute once, store the result"). */
@@ -370,6 +390,7 @@ export interface EarningsSummary {
   hours_unpaid: DecimalString;
   straight_time_pay: DecimalString;
   overtime_premium_pay: DecimalString;
+  extra_pay: DecimalString;
   gross: DecimalString;
   withholding: EmployeeWithholding;
   net_pay: DecimalString;

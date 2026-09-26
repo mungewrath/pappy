@@ -5,11 +5,13 @@ import pytest
 from mypy_boto3_dynamodb.service_resource import Table
 
 from pappy.models.common import HourCategory, OvertimePolicy, PayRunStatus
-from pappy.models.payrun import HourLine, PayRun, PayRunCreate
+from pappy.models.payrun import ExtraPayLine, HourLine, PayRun, PayRunCreate
 from pappy.models.ratetable import RateTable
 from pappy.models.ytd import YtdAccumulator
+from pappy.money import Money
 from pappy.repo import payrun_repo, ytd_repo
 from pappy.repo.exceptions import InvalidStateError, NotFoundError
+from pappy.repo.payrun_repo import _to_item
 from tests.factories import make_payroll
 
 
@@ -192,3 +194,32 @@ def test_list_for_employer_filters_by_year(dynamodb_table: Table) -> None:
 
     only_2026 = payrun_repo.list_for_employer(dynamodb_table, "emp-1", year=2026)
     assert {r.run_id for r in only_2026} == {"run-2026"}
+
+
+def test_reads_a_run_stored_before_extra_pay_existed(dynamodb_table: Table) -> None:
+    """Runs persisted by an earlier version must stay readable.
+
+    `GrossPayResult` is stored inside the PayRun item, so a run written before
+    extra pay shipped has no `extra_pay` key and no `extra_pay_lines` array. It
+    had no extra pay by definition, so the backfill is zero — but it must not
+    raise, or every list/get/finalize against the live table would 500.
+    """
+    item = _to_item(_draft())
+    del item["extra_pay_lines"]
+    del item["gross"]["extra_pay"]
+    dynamodb_table.put_item(Item=item)
+
+    fetched = payrun_repo.get(dynamodb_table, "emp-1", date(2026, 1, 16), "run-1")
+    assert fetched.extra_pay_lines == []
+    assert str(fetched.gross.extra_pay) == "0.00"
+    assert str(fetched.gross.gross) == "1187.50"
+
+    # and it is editable from there like any other draft
+    updated = fetched.with_recomputed_pay(
+        fetched.hour_lines,
+        [ExtraPayLine(note="Bonus", amount=Money("250.00"))],
+        hourly_rate=Decimal("25.00"),
+        overtime_policy=OvertimePolicy.APPLIES,
+    )
+    assert str(updated.gross.extra_pay) == "250.00"
+    assert str(updated.gross.gross) == "1437.50"

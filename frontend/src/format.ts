@@ -25,6 +25,11 @@ export function formatHours(value: string): string {
   return String(Number(value));
 }
 
+/** True when a decimal string is exactly zero — used to hide empty stub lines. */
+export function isZeroAmount(value: string): boolean {
+  return Number(value) === 0;
+}
+
 const dateFmt = new Intl.DateTimeFormat('en-US', {
   year: 'numeric',
   month: 'short',

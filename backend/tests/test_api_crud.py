@@ -11,7 +11,10 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
+import pytest
 from fastapi.testclient import TestClient
+
+from pappy.models.payrun import ExtraPayLine
 
 
 def _create_employer(client: TestClient) -> dict[str, Any]:
@@ -278,7 +281,9 @@ def test_payrun_lifecycle_draft_edit_finalize(client: TestClient, seeded_rates: 
     assert run["status"] == "DRAFT"
     assert run["gross"]["regular_hours"] == "45"
     assert run["gross"]["overtime_hours"] == "5"
+    assert run["gross"]["extra_pay"] == "0.00"
     assert run["gross"]["gross"] == "1187.50"
+    assert run["extra_pay_lines"] == []
     assert run["payroll"] is None
 
     listed = client.get("/payruns")
@@ -290,12 +295,13 @@ def test_payrun_lifecycle_draft_edit_finalize(client: TestClient, seeded_rates: 
 
     # employer edits hours: add a sick day for one of the days
     edited = client.put(
-        f"/payruns/{run_id}/hours",
+        f"/payruns/{run_id}",
         json={
             "hour_lines": [
                 {"work_date": "2026-01-05", "hours": "8", "category": "REGULAR"},
                 {"work_date": "2026-01-06", "hours": "8", "category": "SICK"},
-            ]
+            ],
+            "extra_pay_lines": [],
         },
     )
     assert edited.status_code == 200, edited.text
@@ -322,10 +328,13 @@ def test_payrun_lifecycle_draft_edit_finalize(client: TestClient, seeded_rates: 
     assert payroll["withholding"]["federal_income_tax"] == "9.04"
     assert payroll["net_pay"] == "354.81"
 
-    # can no longer edit hours on a finalized run
+    # can no longer edit a finalized run
     blocked = client.put(
-        f"/payruns/{run_id}/hours",
-        json={"hour_lines": [{"work_date": "2026-01-05", "hours": "1"}]},
+        f"/payruns/{run_id}",
+        json={
+            "hour_lines": [{"work_date": "2026-01-05", "hours": "1"}],
+            "extra_pay_lines": [],
+        },
     )
     assert blocked.status_code == 409
 
@@ -395,3 +404,116 @@ def test_payrun_create_with_explicit_hours(client: TestClient) -> None:
     )
     assert created.status_code == 201
     assert created.json()["gross"]["gross"] == "250.00"
+
+
+def test_payrun_extra_pay_line(client: TestClient, seeded_rates: object) -> None:
+    """A flat lump sum on a draft: gross, withholding, and the reports layer."""
+    _create_employer(client)
+    employee = _create_employee(client)
+    employee_id = employee["employee_id"]
+    client.post(
+        f"/employees/{employee_id}/w4",
+        json={"effective_date": "2026-01-01", "filing_status": "SINGLE_OR_MFS"},
+    )
+
+    created = client.post(
+        f"/payruns/employees/{employee_id}",
+        json={
+            "period_start": "2026-01-05",
+            "period_end": "2026-01-11",
+            "pay_date": "2026-01-16",
+            "extra_pay_lines": [{"note": "Holiday bonus", "amount": "250.00"}],
+        },
+    )
+    assert created.status_code == 201, created.text
+    run = created.json()
+    run_id = run["run_id"]
+
+    # 45 auto-seeded hours -> $1,187.50 hours pay, plus the flat $250
+    assert run["extra_pay_lines"][0]["note"] == "Holiday bonus"
+    assert run["extra_pay_lines"][0]["amount"] == "250.00"
+    assert run["gross"]["extra_pay"] == "250.00"
+    assert run["gross"]["gross"] == "1437.50"
+
+    # amounts round-trip as decimal strings, never floats
+    reloaded = client.get(f"/payruns/{run_id}")
+    assert reloaded.status_code == 200
+    assert reloaded.json()["extra_pay_lines"][0]["amount"] == "250.00"
+
+    # several lines sum into one gross line
+    multi = client.put(
+        f"/payruns/{run_id}",
+        json={
+            "hour_lines": run["hour_lines"],
+            "extra_pay_lines": [
+                {"note": "Holiday bonus", "amount": "250.00"},
+                {"note": "Referral thank-you", "amount": "100.50"},
+            ],
+        },
+    )
+    assert multi.status_code == 200, multi.text
+    assert multi.json()["gross"]["extra_pay"] == "350.50"
+    assert multi.json()["gross"]["gross"] == "1538.00"
+
+    finalized = client.post(f"/payruns/{run_id}/finalize", json={})
+    assert finalized.status_code == 200, finalized.text
+    body = finalized.json()
+    assert body["gross"]["extra_pay"] == "350.50"
+    payroll = body["payroll"]
+    assert payroll is not None
+    # the flat amount flows straight into every FICA/State base and into the
+    # annualized federal figure — no dedicated line in the payroll result.
+    # $1,538 annualized = $79,976 less the $8,600 offset = $71,376, which crosses
+    # into the 22% bracket: $5,800 + 13,476 x 0.22 = $8,764.72/yr = $168.55.
+    assert payroll["gross"] == "1538.00"
+    assert payroll["withholding"]["social_security"] == "95.36"
+    assert payroll["withholding"]["medicare"] == "22.30"
+    assert payroll["withholding"]["federal_income_tax"] == "168.55"
+    assert payroll["withholding"]["wa_pfml_employee"] == "12.41"
+    assert payroll["withholding"]["wa_cares_employee"] == "8.92"
+    assert payroll["withholding"]["total"] == "307.54"
+    assert payroll["net_pay"] == "1230.46"
+
+    # and the annual reports see it as ordinary wages
+    summary = client.get("/tax-years/2026/earnings-summary")
+    assert summary.status_code == 200
+    assert summary.json()[0]["extra_pay"] == "350.50"
+
+    w2 = client.get("/tax-years/2026/w2")
+    assert w2.status_code == 200
+    assert w2.json()[0]["box1_wages"] == "1538.00"
+    assert w2.json()[0]["box3_ss_wages"] == "1538.00"
+
+
+def test_extra_pay_line_validation(client: TestClient) -> None:
+    _create_employer(client)
+    employee = _create_employee(client)
+    employee_id = employee["employee_id"]
+
+    def create(lines: list[dict[str, str]]) -> Any:
+        return client.post(
+            f"/payruns/employees/{employee_id}",
+            json={
+                "period_start": "2026-01-05",
+                "period_end": "2026-01-11",
+                "pay_date": "2026-01-16",
+                "extra_pay_lines": lines,
+            },
+        )
+
+    # blank note rejected
+    assert create([{"note": "   ", "amount": "250.00"}]).status_code == 422
+    # negative amount rejected
+    assert create([{"note": "Clawback", "amount": "-250.00"}]).status_code == 422
+    # amount required
+    assert create([{"note": "Bonus"}]).status_code == 422
+
+
+def test_extra_pay_amount_rejects_float() -> None:
+    """A JSON number is a float, and `Money` refuses floats outright.
+
+    Asserted at the model boundary rather than over HTTP: a `TypeError` raised
+    inside a Pydantic validator is not turned into a 422 by FastAPI.
+    """
+    with pytest.raises(TypeError):
+        ExtraPayLine(note="Bonus", amount=250.5)  # type: ignore[arg-type]

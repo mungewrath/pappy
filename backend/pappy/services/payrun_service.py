@@ -28,7 +28,7 @@ from pappy.calc.fit import MissingW4Error, resolve_w4
 from pappy.calc.payroll import YtdContext, compute_payroll
 from pappy.models.common import PayRunStatus
 from pappy.models.employee import DefaultScheduleLine, Employee
-from pappy.models.payrun import HourLine, PayRun, PayRunCreate
+from pappy.models.payrun import ExtraPayLine, HourLine, PayRun, PayRunCreate
 from pappy.models.reports import (
     BackfillCreate,
     BackfillMode,
@@ -96,13 +96,22 @@ def _auto_populate_hours(
     return lines
 
 
-def update_hours(table: Table, employer_id: str, run_id: str, hour_lines: list[HourLine]) -> PayRun:
+def update_draft(
+    table: Table,
+    employer_id: str,
+    run_id: str,
+    hour_lines: list[HourLine],
+    extra_pay_lines: list[ExtraPayLine],
+) -> PayRun:
     run = payrun_repo.find(table, employer_id, run_id)
     if run.status != PayRunStatus.DRAFT:
-        raise InvalidStateError(f"Cannot edit hours on a {run.status.value} PayRun")
+        raise InvalidStateError(f"Cannot edit a {run.status.value} PayRun")
     employee = employee_repo.get(table, employer_id, run.employee_id)
-    updated = run.with_recomputed_hours(
-        hour_lines, hourly_rate=employee.hourly_rate, overtime_policy=employee.overtime_policy
+    updated = run.with_recomputed_pay(
+        hour_lines,
+        extra_pay_lines,
+        hourly_rate=employee.hourly_rate,
+        overtime_policy=employee.overtime_policy,
     )
     return payrun_repo.save_draft(table, updated)
 

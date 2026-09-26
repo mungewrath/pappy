@@ -23,6 +23,11 @@ paid at the base rate but do not count toward the overtime threshold.
 If the employee's `overtime_policy` is `EXEMPT` (design-doc.md §5.1 —
 live-in employees are FLSA-exempt from overtime), no premium is ever
 applied; all paid hours are straight time.
+
+**Extra pay.** A run may also carry flat extra pay lines — a bonus, gift, or
+similar — entered as a direct cent amount with a note for the stub rather than
+derived from hours. They are added to gross as a third explicit line, and are
+taxable wages like any other (§ models.payrun.ExtraPayLine).
 """
 
 from __future__ import annotations
@@ -37,7 +42,7 @@ from pappy.models.common import HourCategory, OvertimePolicy
 from pappy.money import Money
 
 if TYPE_CHECKING:
-    from pappy.models.payrun import HourLine
+    from pappy.models.payrun import ExtraPayLine, HourLine
 
 REGULAR_WEEKLY_THRESHOLD = Decimal(40)
 OVERTIME_PREMIUM_MULTIPLIER = Decimal("0.5")
@@ -54,12 +59,15 @@ _PAID_CATEGORIES = frozenset(
 
 
 class GrossPayResult(BaseModel):
-    """Gross pay for one pay run, with the overtime premium broken out.
+    """Gross pay for one pay run, with the overtime premium and any extra pay
+    broken out.
 
     `straight_time_pay` covers *all* paid hours (regular, overtime,
     PTO/holiday/sick) at the base rate; `overtime_premium_pay` is only the
-    additional 0.5x on overtime hours. `gross` is their sum. This mirrors
-    the pay-stub line breakdown required by design-doc.md §5.4.
+    additional 0.5x on overtime hours. `extra_pay` is the sum of the run's
+    flat extra pay lines (bonuses and the like) — hours-independent by
+    definition. `gross` is the total of all three. This mirrors the pay-stub
+    line breakdown required by design-doc.md §5.4.
     """
 
     regular_hours: StrictDecimal
@@ -69,6 +77,11 @@ class GrossPayResult(BaseModel):
     hourly_rate: StrictDecimal
     straight_time_pay: Money
     overtime_premium_pay: Money
+    # `GrossPayResult` is persisted inside the `PayRun` item, so a stored run
+    # written before extra pay existed has no `extra_pay` key at all. It had none
+    # by definition, so zero is the correct backfill rather than a guess — and
+    # reading those runs must not fail (see `repo.payrun_repo._from_item`).
+    extra_pay: Money = Money.zero
     gross: Money
 
     @property
@@ -83,6 +96,7 @@ def compute_gross_pay(
     hour_lines: list[HourLine],
     hourly_rate: Decimal,
     overtime_policy: OvertimePolicy,
+    extra_pay_lines: list[ExtraPayLine] | None = None,
 ) -> GrossPayResult:
     regular_hours = Decimal(0)
     tagged_overtime_hours = Decimal(0)
@@ -112,7 +126,11 @@ def compute_gross_pay(
 
     straight_time_pay = _pay_for_hours(straight_hours, hourly_rate)
     overtime_premium_pay = _pay_for_hours(overtime_hours * OVERTIME_PREMIUM_MULTIPLIER, hourly_rate)
-    gross = straight_time_pay + overtime_premium_pay
+    # Extra pay is entered as a direct amount, so nothing to derive here. Every
+    # line is already a cent-quantized Money, so the sum below is exact and a
+    # run with no extra pay reproduces the hours-only gross bit for bit.
+    extra_pay = Money.sum([line.amount for line in extra_pay_lines or []])
+    gross = straight_time_pay + overtime_premium_pay + extra_pay
 
     return GrossPayResult(
         regular_hours=regular_hours,
@@ -122,6 +140,7 @@ def compute_gross_pay(
         hourly_rate=hourly_rate,
         straight_time_pay=straight_time_pay,
         overtime_premium_pay=overtime_premium_pay,
+        extra_pay=extra_pay,
         gross=gross,
     )
 

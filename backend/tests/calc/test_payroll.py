@@ -87,6 +87,58 @@ class TestFullWeekGolden:
             )
 
 
+class TestExtraPayGolden:
+    """A flat lump sum is ordinary taxable wages — same engine, no special case.
+
+    The $25/h, 45-hour week is the $1,187.50 case from
+    `tests/services/test_payrun_service.py`; the bonus run adds a flat $250,
+    taking gross to $1,437.50. Every line is hand-derived from the 2026 table.
+    """
+
+    def test_two_hundred_fifty_bonus_on_a_normal_week(self, rates_2026: RateTable) -> None:
+        plain = _compute(rates_2026, "1187.50")
+        with_bonus = _compute(rates_2026, "1437.50")
+
+        # The bonus is fully FICA- and Washington-taxable...
+        assert with_bonus.withholding.social_security - plain.withholding.social_security == Money(
+            "15.50"
+        )  # 250 * .062
+        assert with_bonus.withholding.medicare - plain.withholding.medicare == Money(
+            "3.62"
+        )  # 250 * .0145 = 3.625, quantized against the larger base
+        assert (
+            with_bonus.withholding.wa_pfml_employee - plain.withholding.wa_pfml_employee
+            == Money("2.01")  # 250 * .0113 * .7143
+        )
+        assert (
+            with_bonus.withholding.wa_cares_employee - plain.withholding.wa_cares_employee
+            == Money("1.45")  # 250 * .0058
+        )
+
+        # ...and the whole payment is annualized as one periodic wage
+        # (Pub. 15 §7, supplemental wages combined with regular wages).
+        # $1,437.50 x 52 = $74,750 less the $8,600 offset = $66,150, which
+        # crosses into the 22% bracket: $5,800 + 8,250 x .22 = $7,615/yr.
+        assert plain.withholding.federal_income_tax == Money("100.58")
+        assert with_bonus.withholding.federal_income_tax == Money("146.44")
+        # $45.86 on $250 is 18.3% — below Pub. 15 §7 method 1a's flat 22%,
+        # because annualizing a small bonus across 52 periods smooths it.
+        assert with_bonus.withholding.federal_income_tax - plain.withholding.federal_income_tax == (
+            Money("45.86")
+        )
+
+        # employer side follows the same base (FUTA has $7,000 of room at zero YTD)
+        assert with_bonus.employer_accruals.social_security == Money("89.13")
+        assert with_bonus.employer_accruals.medicare == Money("20.84")
+        assert with_bonus.employer_accruals.futa == Money("8.63")  # 1437.50 * .006
+
+    def test_bonus_never_raises_a_negative_net(self, rates_2026: RateTable) -> None:
+        result = _compute(rates_2026, "250.00")
+        assert result.gross == Money("250.00")
+        assert result.net_pay > Money(0)
+        assert result.net_pay == result.gross - result.withholding.total
+
+
 class TestWageBaseCaps:
     def test_social_security_cap_partial_then_full(self, rates_2026: RateTable) -> None:
         near_cap = YtdContext(

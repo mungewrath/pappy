@@ -17,11 +17,12 @@ from pappy.calc.fit import MissingW4Error
 from pappy.models.common import Address, PayRunStatus
 from pappy.models.employee import DefaultScheduleLine, Employee, EmployeeCreate
 from pappy.models.employer import Employer, EmployerCreate
-from pappy.models.payrun import PayRunCreate
+from pappy.models.payrun import ExtraPayLine, PayRunCreate
 from pappy.models.ratetable import RateTable
 from pappy.models.w4 import W4Election
+from pappy.money import Money
 from pappy.repo import employee_repo, employer_repo, payrun_repo, ytd_repo
-from pappy.repo.exceptions import NotFoundError
+from pappy.repo.exceptions import InvalidStateError, NotFoundError
 from pappy.services import employee_service, payrun_service
 
 
@@ -233,3 +234,84 @@ def test_finalize_without_rate_table_blocks(dynamodb_table: Table) -> None:
 
     stored = payrun_repo.find(dynamodb_table, employer_id, draft.run_id)
     assert stored.status == PayRunStatus.DRAFT
+
+
+def test_extra_pay_draft_edit_then_finalize(
+    dynamodb_table: Table, seeded_rates: RateTable
+) -> None:
+    """A flat lump sum added to a DRAFT, then locked in at finalization."""
+    employer_id, employee_id = _seed_household(dynamodb_table)
+    employee_service.add_w4_election(
+        dynamodb_table, employer_id, employee_id, W4Election(effective_date=date(2026, 1, 1))
+    )
+
+    draft = payrun_service.create_draft(
+        dynamodb_table, employer_id, employee_id, _week(date(2026, 1, 16))
+    )
+    assert str(draft.gross.gross) == "1187.50"
+    assert str(draft.gross.extra_pay) == "0.00"
+
+    updated = payrun_service.update_draft(
+        dynamodb_table,
+        employer_id,
+        draft.run_id,
+        draft.hour_lines,
+        [ExtraPayLine(note="Holiday bonus", amount=Money("250.00"))],
+    )
+    assert str(updated.gross.extra_pay) == "250.00"
+    assert str(updated.gross.gross) == "1437.50"
+    assert updated.payroll is None  # still a draft: nothing withheld yet
+
+    finalized = payrun_service.finalize_run(dynamodb_table, employer_id, draft.run_id)
+    payroll = finalized.payroll
+    assert payroll is not None
+    # same golden as tests/calc/test_payroll.py::TestExtraPayGolden
+    assert str(payroll.gross) == "1437.50"
+    assert str(payroll.withholding.federal_income_tax) == "146.44"
+    assert str(payroll.withholding.social_security) == "89.13"
+    assert str(payroll.withholding.medicare) == "20.84"
+    assert str(payroll.net_pay) == "1161.15"
+    assert payroll.net_pay + payroll.withholding.total == payroll.gross
+
+    # the bonus advanced the YTD wage accumulators like any other wage
+    ytd = ytd_repo.get_or_none(dynamodb_table, employer_id, employee_id, 2026)
+    assert ytd is not None
+    assert str(ytd.social_security_wages) == "1437.50"
+    assert str(ytd.futa_wages) == "1437.50"
+
+    # a finalized run is immutable: the bonus can no longer be edited
+    with pytest.raises(InvalidStateError):
+        payrun_service.update_draft(
+            dynamodb_table,
+            employer_id,
+            draft.run_id,
+            finalized.hour_lines,
+            [ExtraPayLine(note="Second bonus", amount=Money("500.00"))],
+        )
+
+
+def test_extra_pay_does_not_leak_into_a_later_run(
+    dynamodb_table: Table, seeded_rates: RateTable
+) -> None:
+    """The bonus is per-run — the next week is back to hours-only gross."""
+    employer_id, employee_id = _seed_household(dynamodb_table)
+    employee_service.add_w4_election(
+        dynamodb_table, employer_id, employee_id, W4Election(effective_date=date(2026, 1, 1))
+    )
+
+    first = payrun_service.create_draft(
+        dynamodb_table,
+        employer_id,
+        employee_id,
+        _week(date(2026, 1, 16)).model_copy(
+            update={"extra_pay_lines": [ExtraPayLine(note="Bonus", amount=Money("250.00"))]}
+        ),
+    )
+    payrun_service.finalize_run(dynamodb_table, employer_id, first.run_id)
+
+    second = payrun_service.create_draft(
+        dynamodb_table, employer_id, employee_id, _week(date(2026, 1, 23))
+    )
+    assert str(second.gross.extra_pay) == "0.00"
+    assert str(second.gross.gross) == "1187.50"
+    assert second.extra_pay_lines == []
