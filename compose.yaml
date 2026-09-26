@@ -36,6 +36,7 @@ services:
       # being sent; Terraform sets PAPPY_MAILER=ses in deployments.
       PAPPY_REMINDER_FROM_EMAIL: matthew.unrath@gmail.com
       PAPPY_REMINDER_TO_EMAIL: mungewrath@gmail.com
+      PAPPY_DOCUMENTS_DIR: /tmp/pappy-documents
     volumes:
       # Rate tables live at the repo root, outside the backend image.
       - ./rates:/rates:ro

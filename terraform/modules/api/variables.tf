@@ -28,6 +28,16 @@ variable "table_name" {
   type        = string
 }
 
+variable "document_bucket_arn" {
+  description = "ARN of the S3 bucket for generated documents (§7 — pay stubs, W-2, Schedule H, etc.)."
+  type        = string
+}
+
+variable "document_bucket_name" {
+  description = "Name of the S3 bucket for generated documents (pay stubs, W-2s, etc.)."
+  type        = string
+}
+
 variable "cors_allowed_origins" {
   description = "Origins allowed to call the HTTP API (the SPA's CloudFront domain, plus localhost for dev)."
   type        = list(string)

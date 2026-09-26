@@ -8,6 +8,7 @@
     | PayRun   | EMPLOYER#<id>       | PAYRUN#<payDate>#<runId>              |
     | YTD accumulator | EMPLOYER#<id> | YTD#<taxYear>#<empId>                |
     | Reminder | EMPLOYER#<id>       | REMINDER#<dueDate>#<ruleId>           |
+    | Document | EMPLOYER#<id>       | DOC#<taxYear>#<type>#<docId>          |
     | RateTable | RATES#<taxYear>    | VERSION#<n>                           |
 
 Sort keys are date-prefixed and zero-padded ISO (`date.isoformat()` already
@@ -76,6 +77,27 @@ def reminder_sk_prefix_up_to(due_before: date) -> str:
     lexicographically, so everything strictly before `due_before` shares one
     `begins_with`-compatible prefix scan bounded by a range condition."""
     return f"REMINDER#{due_before.isoformat()}"
+
+
+def doc_sk(tax_year: int, doc_type: str, doc_id: str) -> str:
+    return f"DOC#{tax_year:04d}#{doc_type}#{doc_id}"
+
+
+def doc_sk_prefix(tax_year: int | None = None, doc_type: str | None = None) -> str:
+    parts = ["DOC#"]
+    if tax_year is not None:
+        parts.append(f"{tax_year:04d}#")
+        if doc_type is not None:
+            parts.append(f"{doc_type}#")
+    return "".join(parts)
+
+
+def doc_run_index_sk(tax_year: int, run_id: str, doc_id: str) -> str:
+    return f"DOCIDX#{tax_year:04d}#{run_id}#{doc_id}"
+
+
+def doc_run_index_prefix() -> str:
+    return "DOCIDX#"
 
 
 def rates_pk(tax_year: int) -> str:

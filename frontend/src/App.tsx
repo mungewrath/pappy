@@ -3,6 +3,7 @@ import type { User } from 'oidc-client-ts';
 import { ApiError, getEmployer, getHello, listReminders } from './api/client';
 import type { Employer } from './api/types';
 import { Onboarding } from './components/Onboarding';
+import { DocumentsPanel } from './components/DocumentsPanel';
 import { EmployeesPanel } from './components/EmployeesPanel';
 import { EmployerPanel } from './components/EmployerPanel';
 import { PayRunsPanel } from './components/PayRunsPanel';
@@ -20,11 +21,12 @@ type ProfileState =
   | { status: 'missing' }
   | { status: 'ready'; employer: Employer }
   | { status: 'error'; message: string };
-type Tab = 'payruns' | 'tax' | 'reminders' | 'employees' | 'employer';
+type Tab = 'payruns' | 'tax' | 'documents' | 'reminders' | 'employees' | 'employer';
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'payruns', label: 'Pay runs' },
   { id: 'tax', label: 'Tax' },
+  { id: 'documents', label: 'Documents' },
   { id: 'reminders', label: 'Reminders' },
   { id: 'employees', label: 'Employees' },
   { id: 'employer', label: 'Employer' },
@@ -194,6 +196,7 @@ function App() {
 
           {tab === 'payruns' && <PayRunsPanel key="payruns" />}
           {tab === 'tax' && <TaxPanel key="tax" />}
+          {tab === 'documents' && <DocumentsPanel key="documents" />}
           {tab === 'reminders' && (
             <RemindersPanel key="reminders" onDataChanged={refreshOpenReminders} />
           )}
@@ -208,7 +211,7 @@ function App() {
       )}
 
       <footer className="app-footer muted">
-        Pay stub PDFs and the document store arrive in later phases (design-doc.md §9).
+        Pappy — household payroll manager
       </footer>
     </>
   );

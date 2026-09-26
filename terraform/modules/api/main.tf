@@ -50,10 +50,8 @@ resource "aws_iam_role_policy" "lambda_dynamodb" {
   })
 }
 
-# POST /reminders/test-send sends through the same SES path as the scheduled
-# reminders (§6.6) — send-as the verified sender, only to the verified
-# recipient identity (§7.4). The identities themselves are provisioned by
-# modules/scheduling.
+# The API Lambda uses the same SES path as the scheduled reminders (§6.6) —
+# send-as the verified sender, only to the verified recipient identity (§7.4).
 resource "aws_iam_role_policy" "lambda_ses" {
   name = "${local.name_prefix}-api-ses"
   role = aws_iam_role.lambda_exec.id
@@ -70,6 +68,27 @@ resource "aws_iam_role_policy" "lambda_ses" {
         }
       }
     }]
+  })
+}
+
+# S3 object access for generated documents (§2.2, Phase 3). Employer prefix
+# isolation is enforced by the API because employer IDs are dynamic at runtime.
+resource "aws_iam_role_policy" "lambda_s3_documents" {
+  name = "${local.name_prefix}-api-s3-documents"
+  role = aws_iam_role.lambda_exec.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:PutObject",
+          "s3:GetObject",
+        ]
+        Resource = "${var.document_bucket_arn}/*"
+      },
+    ]
   })
 }
 
@@ -93,8 +112,9 @@ resource "aws_lambda_function" "api" {
 
   environment {
     variables = {
-      PAPPY_CORS_ALLOWED_ORIGINS = join(",", var.cors_allowed_origins)
-      PAPPY_TABLE_NAME           = var.table_name
+      PAPPY_CORS_ALLOWED_ORIGINS  = join(",", var.cors_allowed_origins)
+      PAPPY_TABLE_NAME            = var.table_name
+      PAPPY_DOCUMENTS_BUCKET_NAME = var.document_bucket_name
       # The API's test-send endpoint shares the scheduler's mailer (§6.6):
       # real SES delivery, same verified identities.
       PAPPY_MAILER              = "ses"

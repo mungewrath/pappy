@@ -2,8 +2,10 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   backfillHistory,
   createPayRunDraft,
+  downloadDocumentUrl,
   finalizePayRun,
   finalizePendingRuns,
+  generatePayStub,
   getPayRun,
   listEmployees,
   listPayRuns,
@@ -494,6 +496,8 @@ function PayRunDetail({
   const [lines, setLines] = useState<HourLine[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [generatingStub, setGeneratingStub] = useState(false);
+  const [stubStatus, setStubStatus] = useState<string | null>(null);
 
   const load = () => {
     getPayRun(runId)
@@ -576,6 +580,22 @@ function PayRunDetail({
         category: 'REGULAR',
       },
     ]);
+  };
+
+  const generateStub = async () => {
+    setGeneratingStub(true);
+    setStubStatus(null);
+    setError(null);
+    try {
+      const doc = await generatePayStub(runId);
+      const { url } = await downloadDocumentUrl(doc.doc_id);
+      window.open(url, '_blank', 'noopener,noreferrer');
+      setStubStatus('Pay stub generated.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setGeneratingStub(false);
+    }
   };
 
   return (
@@ -676,11 +696,25 @@ function PayRunDetail({
       )}
 
       {!isDraft && (
-        <p className="muted">
-          {run.status === 'FINALIZED'
-            ? `Immutable since ${formatDateTime(run.finalized_at ?? '')} · rate table v${run.rate_table_version}. Corrections happen via adjustment entries.`
-            : 'This run was voided.'}
-        </p>
+        <>
+          <p className="muted">
+            {run.status === 'FINALIZED'
+              ? `Immutable since ${formatDateTime(run.finalized_at ?? '')} · rate table v${run.rate_table_version}. Corrections happen via adjustment entries.`
+              : 'This run was voided.'}
+          </p>
+          {run.status === 'FINALIZED' && (
+            <div className="actions-bar">
+              <button
+                type="button"
+                disabled={generatingStub}
+                onClick={() => void generateStub()}
+              >
+                {generatingStub ? 'Generating…' : 'Generate pay stub'}
+              </button>
+            </div>
+          )}
+          {stubStatus && <p className="saved-note">{stubStatus}</p>}
+        </>
       )}
 
       {error && <p className="error-banner">{error}</p>}

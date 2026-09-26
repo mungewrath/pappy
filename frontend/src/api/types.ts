@@ -233,6 +233,36 @@ export interface PayRun {
   voided_at?: string | null;
 }
 
+// --- Document (design-doc.md §3.1) -------------------------------------------
+
+export type DocumentType =
+  | 'PAY_STUB'
+  | 'FSA_RECEIPT'
+  | 'SCHEDULE_H'
+  | 'W2'
+  | 'W3'
+  | 'FORM_1040ES'
+  | 'EARNINGS_SUMMARY';
+
+export interface Document {
+  employer_id: string;
+  doc_id: string;
+  document_type: DocumentType;
+  tax_year: number;
+  s3_key: string;
+  sha256: string;
+  filename: string;
+  pay_run_ids: string[];
+  created_at: string;
+}
+
+export interface DocumentDownload {
+  url: string;
+  sha256: string;
+  filename: string;
+  expires_in: number;
+}
+
 // --- Tax-year artifacts (Phase 6; design-doc.md §6.4–§6.6) -------------------
 
 /** One quarter's 1040-ES contribution: withheld FIT plus both halves of

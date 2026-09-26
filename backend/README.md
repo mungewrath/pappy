@@ -18,6 +18,12 @@ and the current rate table for the tax year (`RATES#<year>`, seeded by
 the YTD wage-base accumulator in the same transaction (§4) — so a run can
 never be finalized twice and wage caps can never double-count.
 
+Phase 3 adds ReportLab pay stubs generated from finalized runs' stored
+computations, including current and YTD earnings/withholdings and the explicit
+overtime-premium breakdown. PDFs are stored in the private document bucket;
+DynamoDB records retain their SHA-256 hashes and covered pay-run IDs. The API
+supports generation, archive listing, and short-lived download URLs.
+
 Phase 6 (tax season, numbers-first): historical entry via
 `POST /payruns/employees/{id}/backfill` (weekly drafts across a past date
 range, schedule-seeded or flat-hours) plus `POST /payruns/finalize-pending`
@@ -37,10 +43,9 @@ materializes an idempotent `ReminderInstance` keyed by due date
 (`REMINDER#<dueDate>#<rule>`), and emails it via SES (locally: logged).
 Unacknowledged reminders stay visible via `GET /reminders` until acknowledged.
 
-Not yet implemented: Adjustment entries, document generation / PDFs and the
-document store (Phase 3+). The tax-year endpoints expose the numbers behind
-Schedule H / W-2 / earnings summaries; rendering them into official form PDFs
-lands with the document store.
+Not yet implemented: Adjustment entries and the later document generators for
+FSA receipts, Schedule H, W-2/W-3, 1040-ES, and annual earnings summaries. The
+tax-year endpoints already expose the numbers behind those future artifacts.
 
 ## Sending a test reminder
 

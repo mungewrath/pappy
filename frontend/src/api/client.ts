@@ -19,6 +19,8 @@ import type {
   Address,
   BackfillCreate,
   BackfillResult,
+  Document,
+  DocumentDownload,
   EarningsSummary,
   Employee,
   EmployeeCreate,
@@ -295,6 +297,26 @@ export async function downloadEfw2(
   } finally {
     URL.revokeObjectURL(url);
   }
+}
+
+// --- Documents (Phase 3; design-doc.md §3.1, §6.2) ----------------------------
+
+/** Generate a pay stub PDF for a finalized pay run (idempotent). */
+export function generatePayStub(runId: string): Promise<Document> {
+  return request<Document>(payRunPath(runId, '/pay-stub'), {
+    method: 'POST',
+    body: {},
+  });
+}
+
+export function listDocuments(taxYear?: number): Promise<Document[]> {
+  const query = taxYear === undefined ? '' : `?tax_year=${taxYear}`;
+  return request<Document[]>(`/documents${query}`);
+}
+
+/** Get a short-lived URL for downloading a generated document. */
+export function downloadDocumentUrl(docId: string): Promise<DocumentDownload> {
+  return request<DocumentDownload>(`/documents/${encodeURIComponent(docId)}/download`);
 }
 
 // --- Form helpers -----------------------------------------------------------

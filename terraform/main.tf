@@ -21,6 +21,8 @@ module "api" {
   log_retention_days          = var.log_retention_days
   table_arn                   = module.data.table_arn
   table_name                  = module.data.table_name
+  document_bucket_name        = module.data.document_bucket_name
+  document_bucket_arn         = module.data.document_bucket_arn
   cors_allowed_origins        = ["https://${module.frontend.cloudfront_domain_name}", "http://localhost:5173"]
   cognito_issuer              = module.auth.issuer
   cognito_user_pool_client_id = module.auth.user_pool_client_id
