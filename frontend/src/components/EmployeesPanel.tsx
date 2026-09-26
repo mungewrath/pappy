@@ -210,6 +210,13 @@ function EmployeeFormCard({
       setError('Hourly rate must be a decimal like "25" or "25.50".');
       return;
     }
+    const weekdays = form.schedule.map((line) => line.weekday);
+    const duplicates = weekdays.filter((day, index) => weekdays.indexOf(day) !== index);
+    if (duplicates.length > 0) {
+      const names = [...new Set(duplicates)].map(weekdayName);
+      setError(`Each day can be scheduled only once — ${names.join(', ')} listed more than once.`);
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -352,7 +359,13 @@ function EmployeeFormCard({
           type="button"
           className="secondary"
           disabled={form.schedule.length >= 7}
-          onClick={() => setForm((prev) => ({ ...prev, schedule: [...prev.schedule, { weekday: 0, hours: '' }] }))}
+          onClick={() =>
+            setForm((prev) => {
+              const taken = new Set(prev.schedule.map((line) => line.weekday));
+              const next = [0, 1, 2, 3, 4, 5, 6].find((weekday) => !taken.has(weekday));
+              return { ...prev, schedule: [...prev.schedule, { weekday: next ?? 0, hours: '' }] };
+            })
+          }
         >
           Add day
         </button>

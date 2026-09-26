@@ -83,6 +83,17 @@ export function PayRunsPanel() {
     return [...set].sort((a, b) => b - a);
   }, [runs]);
 
+  /** The API returns runs oldest-first; the table reads better with the most
+   * recent pay date on top, so the least recent sits at the bottom. */
+  const orderedRuns = useMemo(() => {
+    const ordered = [...(runs ?? [])];
+    ordered.sort((a, b) => {
+      if (a.pay_date !== b.pay_date) return a.pay_date < b.pay_date ? 1 : -1;
+      return a.run_id < b.run_id ? 1 : -1;
+    });
+    return ordered;
+  }, [runs]);
+
   const pendingDraftCount = (runs ?? []).filter((run) => run.status === 'DRAFT').length;
 
   const refreshRuns = () =>
@@ -231,7 +242,7 @@ export function PayRunsPanel() {
             </tr>
           </thead>
           <tbody>
-            {runs.map((run) => (
+            {orderedRuns.map((run) => (
               <tr key={run.run_id} className="clickable" onClick={() => setSelectedId(run.run_id)}>
                 <td>
                   <span className={`badge ${run.status.toLowerCase()}`}>{run.status}</span>
@@ -485,6 +496,24 @@ function BackfillCard({
   );
 }
 
+/** Earlier DRAFT runs for this employee in the same tax year — the runs whose
+ * wages would be missing from the YTD accumulators if this one locked first
+ * (§4). The server refuses the reverse case (a run preceding an already
+ * finalized one) but lets this one through, so warn before it is committed.
+ * Deliberately mirrors `_enforce_chronological_order`'s same-year scope. */
+async function earlierPendingRuns(run: PayRun): Promise<PayRun[]> {
+  const siblings = await listPayRuns(Number(run.pay_date.slice(0, 4)));
+  return siblings
+    .filter(
+      (other) =>
+        other.run_id !== run.run_id &&
+        other.employee_id === run.employee_id &&
+        other.status === 'DRAFT' &&
+        other.pay_date < run.pay_date,
+    )
+    .sort((a, b) => (a.pay_date < b.pay_date ? -1 : 1));
+}
+
 function PayRunDetail({
   runId,
   employeeName,
@@ -495,6 +524,7 @@ function PayRunDetail({
   const [run, setRun] = useState<PayRun | null>(null);
   const [lines, setLines] = useState<HourLine[] | null>(null);
   const [busy, setBusy] = useState(false);
+  const [checkingPending, setCheckingPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [generatingStub, setGeneratingStub] = useState(false);
   const [stubStatus, setStubStatus] = useState<string | null>(null);
@@ -545,9 +575,28 @@ function PayRunDetail({
   };
 
   const finalize = async () => {
+    setCheckingPending(true);
+    let pending: PayRun[] = [];
+    try {
+      pending = await earlierPendingRuns(run);
+    } catch (err) {
+      setError(
+        `Could not check for earlier pending runs: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return;
+    } finally {
+      setCheckingPending(false);
+    }
+
+    const outOfOrder =
+      pending.length > 0
+        ? `\n\nWarning: ${pending.length} earlier run${pending.length === 1 ? '' : 's'} for ${employeeName(run.employee_id)} ` +
+          `${pending.length === 1 ? 'is' : 'are'} still a draft (${pending.map((other) => formatDate(other.pay_date)).join(', ')}). ` +
+          'Locking this one first leaves their wages out of the year-to-date totals, so quarterly figures and wage-base caps come out low.'
+        : '';
     if (
       !window.confirm(
-        `Finalize the ${formatMoney(run.gross.gross)} run for ${employeeName(run.employee_id)}?\n\nFinalized runs are immutable.`,
+        `Finalize the ${formatMoney(run.gross.gross)} run for ${employeeName(run.employee_id)}?${outOfOrder}\n\nFinalized runs are immutable.`,
       )
     ) {
       return;
@@ -683,14 +732,14 @@ function PayRunDetail({
 
       {isDraft && (
         <div className="actions-bar">
-          <button type="button" onClick={addLine}>
+          <button type="button" disabled={busy || checkingPending} onClick={addLine}>
             Add line
           </button>
-          <button type="button" disabled={busy || lines === null} onClick={() => void validateAndSave()}>
+          <button type="button" disabled={busy || checkingPending || lines === null} onClick={() => void validateAndSave()}>
             {busy ? 'Saving…' : 'Save hours'}
           </button>
-          <button type="button" className="primary" disabled={busy} onClick={() => void finalize()}>
-            Finalize…
+          <button type="button" className="primary" disabled={busy || checkingPending} onClick={() => void finalize()}>
+            {checkingPending ? 'Checking…' : busy ? 'Finalizing…' : 'Finalize…'}
           </button>
         </div>
       )}
