@@ -774,13 +774,6 @@ function PayRunDetail({
         {employeeName(run.employee_id)} · pay date {formatDate(run.pay_date)}
       </p>
 
-      {isDraft && dirty && (
-        <p className="notice blocking">
-          You have unsaved changes on this draft. Save them before finalizing —
-          finalization locks the run as it is stored, not as it is on screen.
-        </p>
-      )}
-
       {isDraft && gate.kind === 'blocked' && (
         <p className="notice blocking">
           {gate.runs.length} earlier run{gate.runs.length === 1 ? '' : 's'} for{' '}
@@ -934,6 +927,13 @@ function PayRunDetail({
       )}
       {editingExtraPay.length === 0 && isDraft && (
         <p className="muted">No extra pay on this run.</p>
+      )}
+
+      {isDraft && dirty && (
+        <p className="notice blocking">
+          You have unsaved changes on this draft. Save them before finalizing —
+          finalization locks the run as it is stored, not as it is on screen.
+        </p>
       )}
 
       {isDraft && (
