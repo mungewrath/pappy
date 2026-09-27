@@ -3,7 +3,7 @@ import {
   backfillHistory,
   createPayRunDraft,
   deletePayRunDraft,
-  downloadDocumentUrl,
+  downloadDocumentFile,
   finalizePayRun,
   finalizePendingRuns,
   generatePayStub,
@@ -735,8 +735,7 @@ function PayRunDetail({
     setError(null);
     try {
       const doc = await generatePayStub(runId);
-      const { url } = await downloadDocumentUrl(doc.doc_id);
-      window.open(url, '_blank', 'noopener,noreferrer');
+      await downloadDocumentFile(doc.doc_id);
       setStubStatus('Pay stub generated.');
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));

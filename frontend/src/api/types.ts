@@ -284,7 +284,12 @@ export interface DocumentDownload {
   url: string;
   sha256: string;
   filename: string;
+  /** Lifetime of `url` when it is a pre-signed S3 URL; not meaningful for
+   * `via: 'api'`. */
   expires_in: number;
+  /** `url` may be opened directly; `api` must be fetched with the caller's
+   * `Authorization` header, since a browser cannot add one to a navigation. */
+  via: 'url' | 'api';
 }
 
 // --- Tax-year artifacts (Phase 6; design-doc.md §6.4–§6.6) -------------------

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { downloadDocumentUrl, listDocuments } from '../api/client';
+import { downloadDocumentFile, listDocuments } from '../api/client';
 import type { Document } from '../api/types';
 import { formatDate, formatDateTime } from '../format';
 
@@ -53,8 +53,7 @@ export function DocumentsPanel() {
   const handleDownload = async (doc: Document) => {
     setDownloading(doc.doc_id);
     try {
-      const result = await downloadDocumentUrl(doc.doc_id);
-      window.open(result.url, '_blank', 'noopener,noreferrer');
+      await downloadDocumentFile(doc.doc_id);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {

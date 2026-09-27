@@ -77,10 +77,7 @@ class GrossPayResult(BaseModel):
     hourly_rate: StrictDecimal
     straight_time_pay: Money
     overtime_premium_pay: Money
-    # `GrossPayResult` is persisted inside the `PayRun` item, so a stored run
-    # written before extra pay existed has no `extra_pay` key at all. It had none
-    # by definition, so zero is the correct backfill rather than a guess — and
-    # reading those runs must not fail (see `repo.payrun_repo._from_item`).
+    # Default only for results saved before extra_pay was added.
     extra_pay: Money = Money.zero
     gross: Money
 
@@ -126,9 +123,7 @@ def compute_gross_pay(
 
     straight_time_pay = _pay_for_hours(straight_hours, hourly_rate)
     overtime_premium_pay = _pay_for_hours(overtime_hours * OVERTIME_PREMIUM_MULTIPLIER, hourly_rate)
-    # Extra pay is entered as a direct amount, so nothing to derive here. Every
-    # line is already a cent-quantized Money, so the sum below is exact and a
-    # run with no extra pay reproduces the hours-only gross bit for bit.
+    # Extra pay is entered as a direct amount, so nothing to derive here.
     extra_pay = Money.sum([line.amount for line in extra_pay_lines or []])
     gross = straight_time_pay + overtime_premium_pay + extra_pay
 

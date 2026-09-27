@@ -84,10 +84,7 @@ def update_payrun(
 def delete_payrun(run_id: str, table: TableDep, employer_id: EmployerIdDep) -> None:
     """Discard a DRAFT run.
 
-    Drafts are throwaway — a mis-dated week, a backfilled draft the employer
-    disagrees with, a duplicate. Nothing has been computed or accumulated, so
-    removing the item leaves no gap in any tax figure. Only DRAFT runs can be
-    deleted; a finalized run is corrected with an adjustment entry instead
+    Only DRAFT runs can be deleted; a finalized run is corrected with an adjustment entry instead
     (design-doc.md §3.2).
     """
     payrun_service.delete_draft(table, employer_id, run_id)

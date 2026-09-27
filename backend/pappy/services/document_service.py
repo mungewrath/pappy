@@ -69,6 +69,7 @@ class DownloadInfo(TypedDict):
     sha256: str
     filename: str
     expires_in: int
+    via: str
 
 
 @dataclass(frozen=True)
@@ -215,29 +216,35 @@ def list_documents(
 def get_download_url(
     table: Table, employer_id: str, doc_id: str
 ) -> DownloadInfo:
-    """Get a pre-signed download URL for an existing document.
+    """Get a download URL for an existing document, plus how to fetch it.
 
     With an S3 bucket configured this is a pre-signed HTTPS URL, the deployed
     path — the browser fetches from S3 directly and the bytes never pass
-    through the API (§7.3).
+    through the API (§7.3). The client may open such a URL as-is.
 
-    Without one, the document is a file on this process's disk. A `file://`
-    URL is worthless to the SPA — under `docker compose` that path lives in
-    the API container, which the browser cannot read — so local clients get
-    the authenticated content endpoint instead.
+    Without one, the document is a file on this process's disk, so the URL
+    points at `GET /documents/{id}/content` and must be fetched *with* the
+    caller's credentials. That cannot be a plain browser navigation — a
+    top-level navigation carries no `Authorization` header, so the request
+    would arrive anonymous and be resolved against the wrong employer. Hence
+    `via`: the client fetches the bytes itself and saves them.
     """
     doc = document_repo.get_by_id(table, employer_id, doc_id)
     bucket = get_bucket()
-    url = (
-        bucket.presigned_url(doc.s3_key, expires_in=DOWNLOAD_URL_TTL_SECONDS)
-        if bucket.is_s3
-        else f"{api_base_url()}/documents/{quote(doc.doc_id)}/content"
-    )
+    if bucket.is_s3:
+        url: str = bucket.presigned_url(
+            doc.s3_key, expires_in=DOWNLOAD_URL_TTL_SECONDS
+        )
+        via = "url"
+    else:
+        url = f"{api_base_url()}/documents/{quote(doc.doc_id)}/content"
+        via = "api"
     return {
         "url": url,
         "sha256": doc.sha256,
         "filename": doc.filename,
         "expires_in": DOWNLOAD_URL_TTL_SECONDS,
+        "via": via,
     }
 
 

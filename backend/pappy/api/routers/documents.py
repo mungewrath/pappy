@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import FileResponse
@@ -21,7 +21,18 @@ class DownloadResponse(BaseModel):
     url: str
     sha256: str
     filename: str
+    """Lifetime of `url` when it is a pre-signed S3 URL; not meaningful for
+    `via: api`, where the URL carries no signature."""
     expires_in: int
+    """How the client should fetch `url`.
+
+    `url` — open it directly; a pre-signed S3 URL needs no credentials.
+    `api` — fetch it *with* the caller's `Authorization` header. Required for
+    the local-filesystem transport, where the artifact is served by the API
+    itself. A browser cannot attach a header to a top-level navigation, so
+    these must be fetched by the client rather than opened.
+    """
+    via: Literal["url", "api"]
 
 
 @router.get("", response_model=list[Document])

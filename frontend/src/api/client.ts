@@ -79,10 +79,18 @@ interface RequestOptions {
   body?: unknown;
 }
 
-async function request<T>(path: string, { method = 'GET', body }: RequestOptions = {}): Promise<T> {
+/** The auth header for a direct `fetch`, absent when there's no session.
+ *
+ * Bearer auth means credentials only ever ride on requests the client makes —
+ * a top-level navigation (`window.open`, an `<a href>`) cannot carry them, so
+ * anything private has to be fetched and saved rather than opened. */
+async function authHeaders(): Promise<Record<string, string>> {
   const token = await getAccessToken();
-  const headers: Record<string, string> = {};
-  if (token) headers.Authorization = `Bearer ${token}`;
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+async function request<T>(path: string, { method = 'GET', body }: RequestOptions = {}): Promise<T> {
+  const headers: Record<string, string> = await authHeaders();
   if (body !== undefined) headers['Content-Type'] = 'application/json';
 
   const response = await fetch(`${API_BASE_URL}${path}`, {
@@ -93,6 +101,21 @@ async function request<T>(path: string, { method = 'GET', body }: RequestOptions
   if (!response.ok) throw await toApiError(response);
   if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
+}
+
+/** Hands bytes to the browser as a file download, via a transient object URL. */
+function saveBlob(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  try {
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+  } finally {
+    URL.revokeObjectURL(url);
+  }
 }
 
 // --- Health -----------------------------------------------------------------
@@ -281,27 +304,14 @@ export async function downloadEfw2(
   taxYear: number,
   employeeSsns: Record<string, string>,
 ): Promise<void> {
-  const token = await getAccessToken();
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (token) headers.Authorization = `Bearer ${token}`;
+  const headers = { ...(await authHeaders()), 'Content-Type': 'application/json' };
   const response = await fetch(`${API_BASE_URL}${taxYearPath(taxYear, '/efw2')}`, {
     method: 'POST',
     headers,
     body: JSON.stringify({ employee_ssns: employeeSsns }),
   });
   if (!response.ok) throw await toApiError(response);
-  const blob = await response.blob();
-  const url = URL.createObjectURL(blob);
-  try {
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = `EFW2-${taxYear}.txt`;
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-  } finally {
-    URL.revokeObjectURL(url);
-  }
+  saveBlob(await response.blob(), `EFW2-${taxYear}.txt`);
 }
 
 // --- Documents (Phase 3; design-doc.md §3.1, §6.2) ----------------------------
@@ -322,6 +332,25 @@ export function listDocuments(taxYear?: number): Promise<Document[]> {
 /** Get a short-lived URL for downloading a generated document. */
 export function downloadDocumentUrl(docId: string): Promise<DocumentDownload> {
   return request<DocumentDownload>(`/documents/${encodeURIComponent(docId)}/download`);
+}
+
+/** Download a generated document to the user's machine.
+ *
+ * `via: 'url'` is a pre-signed S3 URL that needs no credentials, so it can be
+ * opened directly. `via: 'api'` is the API's own content endpoint (the local
+ * file-system transport, i.e. `docker compose`); that one *is* private, and a
+ * browser cannot attach a bearer token to a navigation — so the bytes are
+ * fetched here and saved. Opening the URL in a tab instead would arrive
+ * unauthenticated and 404. */
+export async function downloadDocumentFile(docId: string): Promise<void> {
+  const info = await downloadDocumentUrl(docId);
+  if (info.via === 'api') {
+    const response = await fetch(info.url, { headers: await authHeaders() });
+    if (!response.ok) throw await toApiError(response);
+    saveBlob(await response.blob(), info.filename);
+    return;
+  }
+  window.open(info.url, '_blank', 'noopener,noreferrer');
 }
 
 // --- Form helpers -----------------------------------------------------------

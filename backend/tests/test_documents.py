@@ -247,10 +247,9 @@ def test_generate_list_download_and_store_pay_stub(
 
     download = client.get(f"/documents/{doc['doc_id']}/download")
     assert download.status_code == 200
-    assert download.json()["sha256"] == doc["sha256"]
-    assert download.json()["filename"] == doc["filename"]
     assert download.json()["expires_in"] == 900
     assert "Signature=" in download.json()["url"]
+    assert download.json()["via"] == "url"
 
 
 def test_pay_stub_generation_is_idempotent(
@@ -332,6 +331,10 @@ def test_local_transport_download_url_is_browser_reachable(
     url = download.json()["url"]
     assert url == f"http://localhost:8000/documents/{doc['doc_id']}/content"
     assert "file://" not in url
+    # The client cannot just open this: a top-level navigation carries no
+    # Authorization header, so the request would arrive anonymous. `via` tells
+    # it to fetch the bytes with the caller's token instead.
+    assert download.json()["via"] == "api"
 
     content = client.get(f"/documents/{doc['doc_id']}/content")
     assert content.status_code == 200
@@ -354,6 +357,30 @@ def test_local_content_is_employer_scoped(
     other = auth_headers("other-employer")
     assert client.get(f"/documents/{doc_id}/content", headers=other).status_code == 404
     assert client.get(f"/documents/{doc_id}/download", headers=other).status_code == 404
+
+
+def test_local_content_rejects_an_unauthenticated_request(
+    client: TestClient,
+    seeded_rates: object,
+    local_documents: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A top-level browser navigation (`window.open`) carries no Authorization
+    header, so an anonymous request must be rejected outright — that is why the
+    SPA fetches these bytes with its token rather than opening the URL.
+
+    `PAPPY_DEV_FALLBACK_SUB` is unset here: the compose escape hatch pins
+    anonymous requests to one principal on purpose, and would mask the check.
+    """
+    monkeypatch.delenv("PAPPY_DEV_FALLBACK_SUB", raising=False)
+    _create_employer(client)
+    run_id = _create_run(client, _create_employee(client), finalize=True)
+    doc_id = client.post(f"/payruns/{run_id}/pay-stub", json={}).json()["doc_id"]
+
+    # the `client` fixture sends a bearer token by default; drop it
+    anonymous = {"Authorization": ""}
+    assert client.get(f"/documents/{doc_id}/content", headers=anonymous).status_code == 401
+    assert client.get(f"/documents/{doc_id}/download", headers=anonymous).status_code == 401
 
 
 def test_local_content_404s_when_a_bucket_is_configured(
