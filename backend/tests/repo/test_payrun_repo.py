@@ -89,6 +89,40 @@ def test_save_draft_requires_draft_status(
         payrun_repo.save_draft(dynamodb_table, finalized)
 
 
+def test_delete_draft_removes_the_item(dynamodb_table: Table) -> None:
+    payrun_repo.create(dynamodb_table, _draft())
+    payrun_repo.create(dynamodb_table, _draft(run_id="run-2"))
+
+    payrun_repo.delete_draft(dynamodb_table, "emp-1", date(2026, 1, 16), "run-1")
+
+    with pytest.raises(NotFoundError):
+        payrun_repo.find(dynamodb_table, "emp-1", "run-1")
+    # sibling drafts are untouched
+    assert payrun_repo.find(dynamodb_table, "emp-1", "run-2").run_id == "run-2"
+
+
+def test_delete_finalized_run_raises(dynamodb_table: Table, rates_2026: RateTable) -> None:
+    run = _draft()
+    payrun_repo.create(dynamodb_table, run)
+    _finalize(dynamodb_table, rates_2026, run)
+
+    with pytest.raises(InvalidStateError):
+        payrun_repo.delete_draft(dynamodb_table, "emp-1", date(2026, 1, 16), "run-1")
+
+    # the run and its YTD contribution both survive
+    assert payrun_repo.find(dynamodb_table, "emp-1", "run-1").status == PayRunStatus.FINALIZED
+    stored = ytd_repo.get_or_none(dynamodb_table, "emp-1", "nanny-1", 2026)
+    assert stored is not None
+    assert stored.social_security_wages == Decimal("1187.50")
+
+
+def test_delete_draft_fails_when_the_item_is_gone(dynamodb_table: Table) -> None:
+    """A missing item is not a DRAFT item — deleting it twice must not
+    silently succeed and read as "draft removed"."""
+    with pytest.raises(InvalidStateError):
+        payrun_repo.delete_draft(dynamodb_table, "emp-1", date(2026, 1, 16), "run-1")
+
+
 def test_finalize_transitions_status_and_stores_payroll(
     dynamodb_table: Table, rates_2026: RateTable
 ) -> None:

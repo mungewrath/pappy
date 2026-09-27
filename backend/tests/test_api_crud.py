@@ -388,6 +388,57 @@ def test_finalize_without_rate_table_is_blocked(client: TestClient) -> None:
     assert blocked.status_code == 404
 
 
+def test_draft_payrun_delete(client: TestClient, seeded_rates: object) -> None:
+    """Drafts are disposable; finalized runs never are (§3.2)."""
+    _create_employer(client)
+    employee = _create_employee(client)
+    employee_id = employee["employee_id"]
+    client.post(
+        f"/employees/{employee_id}/w4",
+        json={"effective_date": "2026-01-01", "filing_status": "SINGLE_OR_MFS"},
+    )
+
+    keep = _open_draft(client, employee_id)
+    doomed = client.post(
+        f"/payruns/employees/{employee_id}",
+        json={
+            "period_start": "2026-01-12",
+            "period_end": "2026-01-18",
+            "pay_date": "2026-01-23",
+        },
+    )
+    assert doomed.status_code == 201, doomed.text
+
+    deleted = client.delete(f"/payruns/{doomed.json()['run_id']}")
+    assert deleted.status_code == 204
+
+    assert client.get(f"/payruns/{doomed.json()['run_id']}").status_code == 404
+    assert [run["run_id"] for run in client.get("/payruns").json()] == [keep["run_id"]]
+
+    # gone for good — a second delete 404s rather than pretending to succeed
+    assert client.delete(f"/payruns/{doomed.json()['run_id']}").status_code == 404
+
+    # a finalized run is immutable history, not a draft
+    finalized = client.post(f"/payruns/{keep['run_id']}/finalize", json={})
+    assert finalized.status_code == 200, finalized.text
+    blocked = client.delete(f"/payruns/{keep['run_id']}")
+    assert blocked.status_code == 409
+    assert "FINALIZED" in blocked.json()["detail"]
+    assert client.get(f"/payruns/{keep['run_id']}").status_code == 200
+
+
+def test_draft_payrun_delete_is_employer_scoped(
+    client: TestClient, auth_headers: Callable[[str], dict[str, str]]
+) -> None:
+    _create_employer(client)
+    employee_id = _create_employee(client)["employee_id"]
+    run = _open_draft(client, employee_id)
+
+    other = auth_headers("someone-else-sub")
+    assert client.delete(f"/payruns/{run['run_id']}", headers=other).status_code == 404
+    assert client.get(f"/payruns/{run['run_id']}").status_code == 200
+
+
 def test_payrun_create_with_explicit_hours(client: TestClient) -> None:
     _create_employer(client)
     employee = _create_employee(client)

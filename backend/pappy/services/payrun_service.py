@@ -67,12 +67,10 @@ def create_draft(
         employer_id=employer_id,
         employee_id=employee_id,
         run_id=uuid.uuid4().hex,
-        data=PayRunCreate(
-            period_start=data.period_start,
-            period_end=data.period_end,
-            pay_date=data.pay_date,
-            hour_lines=hour_lines,
-        ),
+        # `model_copy`, not a field-by-field rebuild: the seeded hours are the
+        # only thing that changes, and rebuilding by hand silently dropped
+        # `extra_pay_lines` — a bonus sent with the draft never landed.
+        data=data.model_copy(update={"hour_lines": hour_lines}),
         hourly_rate=employee.hourly_rate,
         overtime_policy=employee.overtime_policy,
     )
@@ -114,6 +112,20 @@ def update_draft(
         overtime_policy=employee.overtime_policy,
     )
     return payrun_repo.save_draft(table, updated)
+
+
+def delete_draft(table: Table, employer_id: str, run_id: str) -> None:
+    """Discard a draft run the employer no longer wants (§3.2).
+
+    Drafts are the only disposable state: nothing has been computed, no YTD
+    accumulator moved, and no document references them. The server re-checks
+    the DRAFT status on the delete itself, so a run finalized in another tab
+    between the read here and the write survives.
+    """
+    run = payrun_repo.find(table, employer_id, run_id)
+    if run.status != PayRunStatus.DRAFT:
+        raise InvalidStateError(f"Cannot delete a {run.status.value} PayRun")
+    payrun_repo.delete_draft(table, employer_id, run.pay_date, run.run_id)
 
 
 def finalize_run(

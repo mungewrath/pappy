@@ -193,6 +193,12 @@ export function updatePayRunDraft(
   return request<PayRun>(payRunPath(runId), { method: 'PUT', body: data });
 }
 
+/** Discards a DRAFT run. Only drafts are deletable — a finalized run is
+ * corrected with an adjustment entry, so its history is never erased. */
+export function deletePayRunDraft(runId: string): Promise<void> {
+  return request<void>(payRunPath(runId), { method: 'DELETE' });
+}
+
 export function finalizePayRun(runId: string): Promise<PayRun> {
   return request<PayRun>(payRunPath(runId, '/finalize'), {
     method: 'POST',

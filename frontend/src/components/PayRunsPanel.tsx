@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   backfillHistory,
   createPayRunDraft,
+  deletePayRunDraft,
   downloadDocumentUrl,
   finalizePayRun,
   finalizePendingRuns,
@@ -138,7 +139,16 @@ export function PayRunsPanel() {
         <button type="button" className="secondary" onClick={() => setSelectedId(null)}>
           ← All pay runs
         </button>
-        <PayRunDetail runId={selectedId} employeeName={employeeName} />
+        <PayRunDetail
+          runId={selectedId}
+          employeeName={employeeName}
+          onDeleted={(message) => {
+            setSelectedId(null);
+            setError(null);
+            setStatus(message);
+            refreshRuns();
+          }}
+        />
       </div>
     );
   }
@@ -501,8 +511,9 @@ function BackfillCard({
 /** Earlier DRAFT runs for this employee in the same tax year — the runs whose
  * wages would be missing from the YTD accumulators if this one locked first
  * (§4). The server refuses the reverse case (a run preceding an already
- * finalized one) but lets this one through, so warn before it is committed.
- * Deliberately mirrors `_enforce_chronological_order`'s same-year scope. */
+ * finalized one) but lets this one through, so the check gates the Finalize
+ * button here. Deliberately mirrors `_enforce_chronological_order`'s same-year
+ * scope. */
 async function earlierPendingRuns(run: PayRun): Promise<PayRun[]> {
   const siblings = await listPayRuns(Number(run.pay_date.slice(0, 4)));
   return siblings
@@ -516,18 +527,33 @@ async function earlierPendingRuns(run: PayRun): Promise<PayRun[]> {
     .sort((a, b) => (a.pay_date < b.pay_date ? -1 : 1));
 }
 
+/** Whether finalizing this run is currently possible, and if not, why.
+ *
+ * `checking` covers the in-flight query. `failed` is treated as blocking: if
+ * the earlier drafts can't be ruled out, they must be dealt with before this
+ * run locks. */
+type FinalizeGate =
+  | { kind: 'checking' }
+  | { kind: 'clear' }
+  | { kind: 'blocked'; runs: PayRun[] }
+  | { kind: 'failed'; message: string };
+
 function PayRunDetail({
   runId,
   employeeName,
+  onDeleted,
 }: {
   runId: string;
   employeeName: (employeeId: string) => string;
+  onDeleted: (message: string) => void;
 }) {
   const [run, setRun] = useState<PayRun | null>(null);
   const [lines, setLines] = useState<HourLine[] | null>(null);
   const [extraPay, setExtraPay] = useState<ExtraPayLine[] | null>(null);
+  const [dirty, setDirty] = useState(false);
+  const [gate, setGate] = useState<FinalizeGate>({ kind: 'checking' });
   const [busy, setBusy] = useState(false);
-  const [checkingPending, setCheckingPending] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [generatingStub, setGeneratingStub] = useState(false);
   const [stubStatus, setStubStatus] = useState<string | null>(null);
@@ -538,6 +564,7 @@ function PayRunDetail({
         setRun(result);
         setLines(result.hour_lines);
         setExtraPay(result.extra_pay_lines);
+        setDirty(false);
         setError(null);
       })
       .catch((err: unknown) =>
@@ -547,6 +574,34 @@ function PayRunDetail({
 
   useEffect(load, [runId]);
 
+  // Re-check on every load *and* after each save: finalizing out of order
+  // silently understates the YTD totals the tax artifacts read from (§4), so
+  // this is a hard block rather than a heads-up the employer can click past.
+  useEffect(() => {
+    if (run === null) return;
+    if (run.status !== 'DRAFT') {
+      setGate({ kind: 'clear' });
+      return;
+    }
+    let cancelled = false;
+    setGate({ kind: 'checking' });
+    earlierPendingRuns(run)
+      .then((pending) => {
+        if (cancelled) return;
+        setGate(pending.length > 0 ? { kind: 'blocked', runs: pending } : { kind: 'clear' });
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setGate({
+          kind: 'failed',
+          message: err instanceof Error ? err.message : String(err),
+        });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [run]);
+
   if (!run) {
     return error ? <p className="error-banner">{error}</p> : <p>Loading…</p>;
   }
@@ -554,6 +609,10 @@ function PayRunDetail({
   const isDraft = run.status === 'DRAFT';
   const editingLines = lines ?? [];
   const editingExtraPay = extraPay ?? [];
+  const checking = gate.kind === 'checking';
+  const blocked = gate.kind === 'blocked' || gate.kind === 'failed';
+  const working = busy || deleting;
+  const finalizeDisabled = working || dirty || blocked || checking;
 
   const validateAndSave = async () => {
     for (const line of editingLines) {
@@ -585,6 +644,7 @@ function PayRunDetail({
       setRun(updated);
       setLines(updated.hour_lines);
       setExtraPay(updated.extra_pay_lines);
+      setDirty(false);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -594,28 +654,16 @@ function PayRunDetail({
   };
 
   const finalize = async () => {
-    setCheckingPending(true);
-    let pending: PayRun[] = [];
-    try {
-      pending = await earlierPendingRuns(run);
-    } catch (err) {
-      setError(
-        `Could not check for earlier pending runs: ${err instanceof Error ? err.message : String(err)}`,
-      );
+    // The button is disabled in every blocking state; re-check here so an
+    // activation on a stale render can't slip a run through either.
+    if (dirty) {
+      setError('Save your changes before finalizing this run.');
       return;
-    } finally {
-      setCheckingPending(false);
     }
-
-    const outOfOrder =
-      pending.length > 0
-        ? `\n\nWarning: ${pending.length} earlier run${pending.length === 1 ? '' : 's'} for ${employeeName(run.employee_id)} ` +
-          `${pending.length === 1 ? 'is' : 'are'} still a draft (${pending.map((other) => formatDate(other.pay_date)).join(', ')}). ` +
-          'Locking this one first leaves their wages out of the year-to-date totals, so quarterly figures and wage-base caps come out low.'
-        : '';
+    if (finalizeDisabled) return;
     if (
       !window.confirm(
-        `Finalize the ${formatMoney(run.gross.gross)} run for ${employeeName(run.employee_id)}?${outOfOrder}\n\nFinalized runs are immutable.`,
+        `Finalize the ${formatMoney(run.gross.gross)} run for ${employeeName(run.employee_id)}?\n\nFinalized runs are immutable.`,
       )
     ) {
       return;
@@ -631,15 +679,41 @@ function PayRunDetail({
     }
   };
 
-  const setLine = (index: number, patch: Partial<HourLine>) =>
-    setLines((prev) => prev!.map((line, i) => (i === index ? { ...line, ...patch } : line)));
+  const remove = async () => {
+    const unsaved = dirty
+      ? '\n\nThe unsaved edits on this screen go with it.'
+      : '';
+    if (
+      !window.confirm(
+        `Delete the draft paid ${formatDate(run.pay_date)}?${unsaved}\n\nIt covers ${formatDate(run.period_start)} – ${formatDate(run.period_end)} and cannot be recovered.`,
+      )
+    ) {
+      return;
+    }
+    setDeleting(true);
+    try {
+      await deletePayRunDraft(runId);
+      onDeleted(`Deleted the draft paid ${formatDate(run.pay_date)}.`);
+    } catch (err) {
+      setDeleting(false);
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
 
-  const setExtraLine = (index: number, patch: Partial<ExtraPayLine>) =>
+  const setLine = (index: number, patch: Partial<HourLine>) => {
+    setDirty(true);
+    setLines((prev) => prev!.map((line, i) => (i === index ? { ...line, ...patch } : line)));
+  };
+
+  const setExtraLine = (index: number, patch: Partial<ExtraPayLine>) => {
+    setDirty(true);
     setExtraPay((prev) =>
       (prev ?? []).map((line, i) => (i === index ? { ...line, ...patch } : line)),
     );
+  };
 
   const addLine = () => {
+    setDirty(true);
     const lastDate =
       editingLines.length > 0 ? editingLines[editingLines.length - 1].work_date : run.period_start;
     const next = new Date(`${lastDate || todayIso()}T00:00:00Z`);
@@ -671,11 +745,23 @@ function PayRunDetail({
     }
   };
   
-  const addExtraLine = () =>
+  const addExtraLine = () => {
+    setDirty(true);
     setExtraPay((prev) => [
       ...(prev ?? []),
       { line_id: crypto.randomUUID(), note: '', amount: '' },
     ]);
+  };
+
+  const removeLine = (index: number) => {
+    setDirty(true);
+    setLines((prev) => prev!.filter((_, i) => i !== index));
+  };
+
+  const removeExtraLine = (index: number) => {
+    setDirty(true);
+    setExtraPay((prev) => (prev ?? []).filter((_, i) => i !== index));
+  };
 
   return (
     <div className="card left">
@@ -688,6 +774,34 @@ function PayRunDetail({
       <p>
         {employeeName(run.employee_id)} · pay date {formatDate(run.pay_date)}
       </p>
+
+      {isDraft && dirty && (
+        <p className="notice blocking">
+          You have unsaved changes on this draft. Save them before finalizing —
+          finalization locks the run as it is stored, not as it is on screen.
+        </p>
+      )}
+
+      {isDraft && gate.kind === 'blocked' && (
+        <p className="notice blocking">
+          {gate.runs.length} earlier run{gate.runs.length === 1 ? '' : 's'} for{' '}
+          {employeeName(run.employee_id)} (
+          {gate.runs.map((other) => formatDate(other.pay_date)).join(', ')}){' '}
+          {gate.runs.length === 1 ? 'is' : 'are'} still a draft, so this run
+          cannot be finalized yet. Go back to “All pay runs” and either use the
+          “Finalize … pending (oldest first)” button or delete{' '}
+          {gate.runs.length === 1 ? 'it' : 'them'} — locking this one first would
+          leave those wages out of the year-to-date totals, so quarterly figures
+          and wage-base caps would come out low.
+        </p>
+      )}
+
+      {isDraft && gate.kind === 'failed' && (
+        <p className="notice blocking">
+          Could not check for earlier drafts: {gate.message}. Resolve that first
+          so we can rule out finalizing out of order.
+        </p>
+      )}
 
       <GrossBreakdown run={run} />
 
@@ -745,7 +859,7 @@ function PayRunDetail({
                       type="button"
                       className="danger"
                       aria-label="Remove line"
-                      onClick={() => setLines((prev) => prev!.filter((_, i) => i !== index))}
+                      onClick={() => removeLine(index)}
                     >
                       ✕
                     </button>
@@ -808,9 +922,7 @@ function PayRunDetail({
                       type="button"
                       className="danger"
                       aria-label="Remove extra pay line"
-                      onClick={() =>
-                        setExtraPay((prev) => (prev ?? []).filter((_, i) => i !== index))
-                      }
+                      onClick={() => removeExtraLine(index)}
                     >
                       ✕
                     </button>
@@ -827,17 +939,34 @@ function PayRunDetail({
 
       {isDraft && (
         <div className="actions-bar">
-          <button type="button" disabled={busy || checkingPending} onClick={addLine}>
+          <button type="button" disabled={working} onClick={addLine}>
             Add line
           </button>
-          <button type="button" disabled={busy || checkingPending} onClick={addExtraLine}>
+          <button type="button" disabled={working} onClick={addExtraLine}>
             Add extra pay
           </button>
-          <button type="button" disabled={busy || checkingPending || lines === null} onClick={() => void validateAndSave()}>
+          <button
+            type="button"
+            disabled={working || lines === null}
+            onClick={() => void validateAndSave()}
+          >
             {busy ? 'Saving…' : 'Save changes'}
           </button>
-          <button type="button" className="primary" disabled={busy || checkingPending} onClick={() => void finalize()}>
-            {checkingPending ? 'Checking…' : busy ? 'Finalizing…' : 'Finalize…'}
+          <button
+            type="button"
+            className="danger"
+            disabled={working}
+            onClick={() => void remove()}
+          >
+            {deleting ? 'Deleting…' : 'Delete draft'}
+          </button>
+          <button
+            type="button"
+            className="primary"
+            disabled={finalizeDisabled}
+            onClick={() => void finalize()}
+          >
+            {checking ? 'Checking…' : busy ? 'Finalizing…' : 'Finalize…'}
           </button>
         </div>
       )}

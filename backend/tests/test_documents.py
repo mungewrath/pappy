@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 from io import BytesIO
+from pathlib import Path
 from typing import Any
 
 import boto3
@@ -170,6 +171,15 @@ def test_document_model_round_trip() -> None:
     assert Document.model_validate(doc.model_dump(mode="json")) == doc
 
 
+def test_document_without_a_pay_date_still_reads() -> None:
+    """Year-wide artifacts (W-2, Schedule H, earnings summary) cover no single
+    run, and stubs stored before `pay_date` existed have no value — both must
+    validate rather than 500 the archive listing."""
+    assert _document(doc_type=DocumentType.W2).pay_date is None
+    legacy = {k: v for k, v in _document().model_dump(mode="json").items() if k != "pay_date"}
+    assert Document.model_validate(legacy).pay_date is None
+
+
 def test_document_repo_lookup_and_filters(dynamodb_table: Table) -> None:
     stub = document_repo.put(dynamodb_table, _document())
     document_repo.put(
@@ -224,6 +234,8 @@ def test_generate_list_download_and_store_pay_stub(
     assert doc["document_type"] == "PAY_STUB"
     assert doc["pay_run_ids"] == [run_id]
     assert doc["filename"] == "pay-stub-2026-01-16.pdf"
+    # the archive lists by pay date, not by run id
+    assert doc["pay_date"] == "2026-01-16"
 
     stored = s3_bucket.get_object(Bucket=BUCKET_NAME, Key=doc["s3_key"])["Body"].read()
     assert stored.startswith(b"%PDF")
@@ -282,3 +294,91 @@ def test_document_download_is_employer_scoped(
     )
 
     assert response.status_code == 404
+
+
+# --- Local-filesystem transport (docker-compose dev; no S3 bucket) ------------
+
+
+@pytest.fixture
+def local_documents(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
+    """The `docker compose` setup: no bucket, files on the API's own disk.
+
+    Undoes the module's autouse S3 configuration; set up after it, so the
+    deletion wins.
+    """
+    monkeypatch.delenv("PAPPY_DOCUMENTS_BUCKET_NAME", raising=False)
+    monkeypatch.setenv("PAPPY_DOCUMENTS_DIR", str(tmp_path))
+    monkeypatch.setenv("PAPPY_API_BASE_URL", "http://localhost:8000")
+    return tmp_path
+
+
+def test_local_transport_download_url_is_browser_reachable(
+    client: TestClient, seeded_rates: object, local_documents: Path
+) -> None:
+    """The `file://` URL is the bug this replaces: under compose the path is
+    inside the API container, which a browser on the host cannot read."""
+    _create_employer(client)
+    run_id = _create_run(client, _create_employee(client), finalize=True)
+
+    generated = client.post(f"/payruns/{run_id}/pay-stub", json={})
+    assert generated.status_code == 201, generated.text
+    doc = generated.json()
+
+    stored = local_documents / doc["s3_key"]
+    assert stored.read_bytes().startswith(b"%PDF")
+
+    download = client.get(f"/documents/{doc['doc_id']}/download")
+    assert download.status_code == 200
+    url = download.json()["url"]
+    assert url == f"http://localhost:8000/documents/{doc['doc_id']}/content"
+    assert "file://" not in url
+
+    content = client.get(f"/documents/{doc['doc_id']}/content")
+    assert content.status_code == 200
+    assert content.headers["content-type"] == "application/pdf"
+    assert doc["filename"] in content.headers["content-disposition"]
+    assert content.headers["x-content-sha256"] == doc["sha256"]
+    assert hashlib.sha256(content.content).hexdigest() == doc["sha256"]
+
+
+def test_local_content_is_employer_scoped(
+    client: TestClient,
+    seeded_rates: object,
+    local_documents: Path,
+    auth_headers: Any,
+) -> None:
+    _create_employer(client)
+    run_id = _create_run(client, _create_employee(client), finalize=True)
+    doc_id = client.post(f"/payruns/{run_id}/pay-stub", json={}).json()["doc_id"]
+
+    other = auth_headers("other-employer")
+    assert client.get(f"/documents/{doc_id}/content", headers=other).status_code == 404
+    assert client.get(f"/documents/{doc_id}/download", headers=other).status_code == 404
+
+
+def test_local_content_404s_when_a_bucket_is_configured(
+    client: TestClient, seeded_rates: object, s3_bucket: Any
+) -> None:
+    """Deployed environments serve documents by pre-signed URL; this endpoint
+    must not become a second, unnecessary path to the bytes (§7.3)."""
+    _create_employer(client)
+    run_id = _create_run(client, _create_employee(client), finalize=True)
+    doc_id = client.post(f"/payruns/{run_id}/pay-stub", json={}).json()["doc_id"]
+
+    assert client.get(f"/documents/{doc_id}/content").status_code == 404
+
+
+def test_local_path_cannot_escape_the_documents_root(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from pappy.repo.bucket import Bucket
+
+    monkeypatch.delenv("PAPPY_DOCUMENTS_BUCKET_NAME", raising=False)
+    monkeypatch.setenv("PAPPY_DOCUMENTS_DIR", str(tmp_path))
+    bucket = Bucket()
+
+    assert bucket.local_path("emp-1/pay-stubs/2026/run-1.pdf") == (
+        tmp_path / "emp-1" / "pay-stubs" / "2026" / "run-1.pdf"
+    )
+    with pytest.raises(ValueError):
+        bucket.local_path("../../etc/passwd")

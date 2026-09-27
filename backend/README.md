@@ -18,11 +18,29 @@ and the current rate table for the tax year (`RATES#<year>`, seeded by
 the YTD wage-base accumulator in the same transaction (§4) — so a run can
 never be finalized twice and wage caps can never double-count.
 
+Drafts are disposable: `DELETE /payruns/{runId}` discards one, for a
+mis-dated week, a backfilled draft the employer disagrees with, or a
+duplicate. Nothing has been computed or accumulated at that point, so the
+deletion leaves no gap in any tax figure. Only DRAFT runs can be deleted —
+the server re-checks on the delete itself, and a finalized run is corrected
+with an adjustment entry rather than by erasing history (§3.2).
+
 Phase 3 adds ReportLab pay stubs generated from finalized runs' stored
 computations, including current and YTD earnings/withholdings and the explicit
 overtime-premium breakdown. PDFs are stored in the private document bucket;
-DynamoDB records retain their SHA-256 hashes and covered pay-run IDs. The API
-supports generation, archive listing, and short-lived download URLs.
+DynamoDB records retain their SHA-256 hashes and covered pay-run IDs, plus the
+pay date the archive lists by. The API supports generation, archive listing,
+and short-lived download URLs.
+
+With no `PAPPY_DOCUMENTS_BUCKET_NAME` set — `docker compose up` — documents are
+files under `PAPPY_DOCUMENTS_DIR` *inside the API container*, so a `file://`
+URL is no use to a browser on the host. `GET /documents/{id}/download` therefore
+points local clients at `GET /documents/{id}/content`, which streams the bytes
+over HTTP behind the same auth and employer scoping as every other read. Set
+`PAPPY_API_BASE_URL` to the host-visible API address (`compose.yaml` does;
+default `http://localhost:8000`) so that URL is reachable. Deployed environments
+set a bucket name and keep using pre-signed S3 URLs, never proxying bytes through
+the API (§7.3).
 
 Phase 6 (tax season, numbers-first): historical entry via
 `POST /payruns/employees/{id}/backfill` (weekly drafts across a past date

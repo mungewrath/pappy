@@ -273,6 +273,10 @@ export interface Document {
   sha256: string;
   filename: string;
   pay_run_ids: string[];
+  /** Pay date of the run this document covers, for artifacts that span a
+   * single run (a pay stub). Absent on year-wide documents (W-2, Schedule H,
+   * earnings summary) and on stubs generated before the field existed. */
+  pay_date?: string | null;
   created_at: string;
 }
 

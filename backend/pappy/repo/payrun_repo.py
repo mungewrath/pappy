@@ -5,6 +5,7 @@ is append-only. `put_draft` and `finalize` enforce that with conditional
 writes rather than trusting the caller:
 
 - `put_draft` (create or edit) fails if an item exists in a non-DRAFT state.
+- `delete_draft` fails unless the stored run is still DRAFT.
 - `finalize` is one `TransactWriteItems` (§4) that writes the finalized run
   *and* advances the YTD accumulator atomically, conditioned on the run
   still being DRAFT — so a run can never be finalized twice, and wage-base
@@ -113,6 +114,30 @@ def save_draft(table: Table, run: PayRun) -> PayRun:
             ) from exc
         raise
     return run
+
+
+def delete_draft(table: Table, employer_id: str, pay_date: date, run_id: str) -> None:
+    """Discard a DRAFT run outright. Fails if the stored run is not DRAFT.
+
+    A DRAFT has contributed to nothing — no YTD accumulator, no document — so
+    removing the item cannot leave a gap in any tax figure. A FINALIZED run
+    stays on the books: corrections arrive as adjustment entries, never by
+    erasing history (design-doc.md §3.2).
+    """
+    try:
+        table.delete_item(
+            Key={
+                "pk": keys.employer_pk(employer_id),
+                "sk": keys.payrun_sk(pay_date, run_id),
+            },
+            ConditionExpression=Attr("status").eq(PayRunStatus.DRAFT.value),
+        )
+    except ClientError as exc:
+        if exc.response["Error"]["Code"] == "ConditionalCheckFailedException":
+            raise InvalidStateError(
+                f"PayRun is no longer a draft, cannot delete: {run_id}"
+            ) from exc
+        raise
 
 
 def finalize(

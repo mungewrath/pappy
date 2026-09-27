@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends
 
 from pappy.api.deps import EmployerIdDep, get_table
 from pappy.models.document import Document
-from pappy.models.payrun import HourLine, PayRun, PayRunCreate, PayRunDraftUpdate
+from pappy.models.payrun import PayRun, PayRunCreate, PayRunDraftUpdate
 from pappy.models.reports import BackfillCreate, BackfillResult, FinalizePendingResult
 from pappy.services import document_service, payrun_service
 
@@ -78,6 +78,19 @@ def update_payrun(
     return payrun_service.update_draft(
         table, employer_id, run_id, data.hour_lines, data.extra_pay_lines
     )
+
+
+@router.delete("/{run_id}", status_code=204)
+def delete_payrun(run_id: str, table: TableDep, employer_id: EmployerIdDep) -> None:
+    """Discard a DRAFT run.
+
+    Drafts are throwaway — a mis-dated week, a backfilled draft the employer
+    disagrees with, a duplicate. Nothing has been computed or accumulated, so
+    removing the item leaves no gap in any tax figure. Only DRAFT runs can be
+    deleted; a finalized run is corrected with an adjustment entry instead
+    (design-doc.md §3.2).
+    """
+    payrun_service.delete_draft(table, employer_id, run_id)
 
 
 @router.post("/{run_id}/finalize", response_model=PayRun)

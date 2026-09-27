@@ -12,7 +12,7 @@ store foundation. Later phases add the remaining generators.
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from enum import Enum
 
 from pydantic import BaseModel, Field
@@ -37,6 +37,11 @@ class Document(BaseModel):
     (design-doc.md §4). The S3 object is the actual artifact; this
     record is the index entry that links pay runs to their documents and
     enables hash-based verification of re-generated files.
+
+    `pay_run_ids` are opaque identifiers, so `pay_date` is stored alongside
+    them for the artifacts that cover one run (a pay stub) — the archive
+    lists by pay date, not by id. Documents spanning a whole tax year (W-2,
+    Schedule H, earnings summary) leave it unset.
     """
 
     employer_id: str
@@ -44,6 +49,7 @@ class Document(BaseModel):
     document_type: DocumentType
     tax_year: int
     pay_run_ids: list[str] = Field(default_factory=list)
+    pay_date: date | None = None
     s3_key: str
     sha256: str
     filename: str
@@ -59,6 +65,7 @@ class Document(BaseModel):
         s3_key: str,
         sha256: str,
         pay_run_ids: list[str] | None = None,
+        pay_date: date | None = None,
         filename: str = "",
     ) -> Document:
         now = datetime.now(UTC)
@@ -70,6 +77,7 @@ class Document(BaseModel):
             s3_key=s3_key,
             sha256=sha256,
             pay_run_ids=pay_run_ids or [],
+            pay_date=pay_date,
             filename=filename or f"{document_type.value}.pdf",
             created_at=now,
         )

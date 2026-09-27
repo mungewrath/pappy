@@ -37,6 +37,13 @@ services:
       PAPPY_REMINDER_FROM_EMAIL: matthew.unrath@gmail.com
       PAPPY_REMINDER_TO_EMAIL: mungewrath@gmail.com
       PAPPY_DOCUMENTS_DIR: /tmp/pappy-documents
+      # Host-visible address of this API, used to hand the SPA a reachable
+      # download URL for pay stubs. With no S3 bucket configured, documents are
+      # files under PAPPY_DOCUMENTS_DIR *inside this container* — a file:// URL
+      # is no use to a browser on the host, so /documents/{id}/download points
+      # at the authenticated /documents/{id}/content endpoint instead. Must be
+      # the browser-reachable address, not the in-network `backend:8000`.
+      PAPPY_API_BASE_URL: http://localhost:8000
     volumes:
       # Rate tables live at the repo root, outside the backend image.
       - ./rates:/rates:ro
