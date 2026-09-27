@@ -290,6 +290,14 @@ fieldset.address {
   overflow-wrap: anywhere;
 }
 
+/* A condition that stops the next step rather than reporting a failure —
+   the amber of the DRAFT badge, since the fix is to finish the draft. */
+.notice.blocking {
+  border-color: #b7791f;
+  background: rgba(183, 121, 31, 0.08);
+  color: #b7791f;
+}
+
 .error-banner {
   border: 1px solid #d64545;
   border-radius: 7px;

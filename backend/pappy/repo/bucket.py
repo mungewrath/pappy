@@ -7,13 +7,17 @@ pattern used by `pappy.mailer` (SES vs log):
   objects are stored and pre-signed URLs generated via boto3.
 - **Local file system** (local dev without S3): when the bucket name is
   unset, documents are written under `PAPPY_DOCUMENTS_DIR` (default
-  `./documents`). Pre-signed URLs are replaced by plain local file paths.
-  This keeps `docker compose up` useful without provisioning an S3 bucket.
+  `./documents`). This keeps `docker compose up` useful without provisioning
+  an S3 bucket, but the files are private to whichever filesystem the API
+  runs on, so `pappy.services.document_service` serves them back over the
+  authenticated `GET /documents/{id}/content` endpoint.
 
 Bucket configuration:
 - `PAPPY_DOCUMENTS_BUCKET_NAME` — S3 bucket (deployed / tests)
 - `PAPPY_DOCUMENTS_DIR` — local directory fallback (dev)
 - `PAPPY_S3_ENDPOINT_URL` — for DynamoDB Local / LocalStack / moto
+- `PAPPY_API_BASE_URL` — host-visible base URL of this API, so the local
+  transport can hand the SPA a download URL the browser can open
 """
 
 from __future__ import annotations
@@ -69,17 +73,36 @@ class Bucket:
                 ContentType=content_type,
             )
         else:
-            path = self._local_dir / key
+            path = self.local_path(key)
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(data)
         return sha
 
+    def local_path(self, key: str) -> Path:
+        """Filesystem location of `key` under the local transport's root.
+
+        The key is server-generated and stored on the Document record, never
+        supplied by a client, but it is still resolved *within* the root: a
+        stray `..` segment must not be able to address anything outside
+        `PAPPY_DOCUMENTS_DIR` (§7.3).
+        """
+        root = self._local_dir
+        path = (root / key).resolve()
+        if path != root and root not in path.parents:
+            raise ValueError(f"Document key escapes {root}: {key!r}")
+        return path
+
     def presigned_url(self, key: str, expires_in: int = 3600) -> str:
         """Return a time-limited download URL for the object.
 
-        Under the local file-system fallback this returns a ``file://``
-        URL (only useful for local testing / debugging; the SPA won't
-        fetch it, but it exercises the code path).
+        S3 mode returns a pre-signed HTTPS URL — the deployed path, where the
+        browser talks to S3 directly and never touches the API (§7.3).
+
+        Local mode returns a `file://` URL, which is only meaningful inside the
+        process's own filesystem. Under `docker compose` that is the API
+        container's `/tmp/pappy-documents`, which the host browser cannot read,
+        so `document_service` points local clients at the authenticated
+        `GET /documents/{id}/content` endpoint instead of calling this.
         """
         if self.is_s3:
             url: str = self._s3_client().generate_presigned_url(
@@ -88,8 +111,7 @@ class Bucket:
                 ExpiresIn=expires_in,
             )
             return url
-        path = self._local_dir / key
-        return path.as_uri()
+        return self.local_path(key).as_uri()
 
 
 def get_bucket() -> Bucket:

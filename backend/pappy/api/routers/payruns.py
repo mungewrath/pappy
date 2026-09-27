@@ -11,21 +11,16 @@ from __future__ import annotations
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel
 
 from pappy.api.deps import EmployerIdDep, get_table
 from pappy.models.document import Document
-from pappy.models.payrun import HourLine, PayRun, PayRunCreate
+from pappy.models.payrun import PayRun, PayRunCreate, PayRunDraftUpdate
 from pappy.models.reports import BackfillCreate, BackfillResult, FinalizePendingResult
 from pappy.services import document_service, payrun_service
 
 router = APIRouter(prefix="/payruns", tags=["payruns"])
 
 TableDep = Annotated[Any, Depends(get_table)]
-
-
-class HourLinesUpdate(BaseModel):
-    hour_lines: list[HourLine]
 
 
 @router.post("/finalize-pending", response_model=FinalizePendingResult)
@@ -48,7 +43,8 @@ def create_payrun(
     employee_id: str, data: PayRunCreate, table: TableDep, employer_id: EmployerIdDep
 ) -> PayRun:
     """Open a new draft. If ``hour_lines`` is omitted, auto-populates from the
-    employee's default weekly schedule (design-doc.md ss6.1)."""
+    employee's default weekly schedule (design-doc.md ss6.1). `extra_pay_lines`
+    may carry flat lump sums (bonuses) alongside the hours."""
     return payrun_service.create_draft(table, employer_id, employee_id, data)
 
 
@@ -73,13 +69,25 @@ def get_payrun(run_id: str, table: TableDep, employer_id: EmployerIdDep) -> PayR
     return payrun_service.get_draft_or_run(table, employer_id, run_id)
 
 
-@router.put("/{run_id}/hours", response_model=PayRun)
-def update_hours(
-    run_id: str, data: HourLinesUpdate, table: TableDep, employer_id: EmployerIdDep
+@router.put("/{run_id}", response_model=PayRun)
+def update_payrun(
+    run_id: str, data: PayRunDraftUpdate, table: TableDep, employer_id: EmployerIdDep
 ) -> PayRun:
-    """Replace the hour lines on a DRAFT run; gross is recomputed
-    (design-doc.md ss3.2: "recompute on every change")."""
-    return payrun_service.update_hours(table, employer_id, run_id, data.hour_lines)
+    """Replace the hour lines and extra pay lines on a DRAFT run; gross is
+    recomputed (design-doc.md §3.2: "recompute on every change")."""
+    return payrun_service.update_draft(
+        table, employer_id, run_id, data.hour_lines, data.extra_pay_lines
+    )
+
+
+@router.delete("/{run_id}", status_code=204)
+def delete_payrun(run_id: str, table: TableDep, employer_id: EmployerIdDep) -> None:
+    """Discard a DRAFT run.
+
+    Only DRAFT runs can be deleted; a finalized run is corrected with an adjustment entry instead
+    (design-doc.md §3.2).
+    """
+    payrun_service.delete_draft(table, employer_id, run_id)
 
 
 @router.post("/{run_id}/finalize", response_model=PayRun)

@@ -13,7 +13,7 @@ import type {
   ScheduleHWorksheet,
   W2Summary,
 } from '../api/types';
-import { formatDate, formatHours, formatMoney } from '../format';
+import { formatDate, formatHours, formatMoney, isZeroAmount } from '../format';
 
 /**
  * Tax year artifacts (design-doc.md §6.4–§6.6): quarterly 1040-ES figures,
@@ -277,7 +277,19 @@ function EmployeeSummary({ summary }: { summary: EarningsSummary }) {
           <tr>
             <td>Unpaid hours</td>
             <td className="num">{formatHours(summary.hours_unpaid)}</td>
-            <td><strong>Gross</strong></td>
+            <td></td>
+            <td className="num"></td>
+          </tr>
+          {!isZeroAmount(summary.extra_pay) && (
+            <tr>
+              <td>Extra pay</td>
+              <td className="num">—</td>
+              <td>Lump sum</td>
+              <td className="num">{formatMoney(summary.extra_pay)}</td>
+            </tr>
+          )}
+          <tr>
+            <td colSpan={3}><strong>Gross</strong></td>
             <td className="num"><strong>{formatMoney(summary.gross)}</strong></td>
           </tr>
         </tbody>

@@ -5,11 +5,13 @@ import pytest
 from mypy_boto3_dynamodb.service_resource import Table
 
 from pappy.models.common import HourCategory, OvertimePolicy, PayRunStatus
-from pappy.models.payrun import HourLine, PayRun, PayRunCreate
+from pappy.models.payrun import ExtraPayLine, HourLine, PayRun, PayRunCreate
 from pappy.models.ratetable import RateTable
 from pappy.models.ytd import YtdAccumulator
+from pappy.money import Money
 from pappy.repo import payrun_repo, ytd_repo
 from pappy.repo.exceptions import InvalidStateError, NotFoundError
+from pappy.repo.payrun_repo import _to_item
 from tests.factories import make_payroll
 
 
@@ -85,6 +87,40 @@ def test_save_draft_requires_draft_status(
 
     with pytest.raises(InvalidStateError):
         payrun_repo.save_draft(dynamodb_table, finalized)
+
+
+def test_delete_draft_removes_the_item(dynamodb_table: Table) -> None:
+    payrun_repo.create(dynamodb_table, _draft())
+    payrun_repo.create(dynamodb_table, _draft(run_id="run-2"))
+
+    payrun_repo.delete_draft(dynamodb_table, "emp-1", date(2026, 1, 16), "run-1")
+
+    with pytest.raises(NotFoundError):
+        payrun_repo.find(dynamodb_table, "emp-1", "run-1")
+    # sibling drafts are untouched
+    assert payrun_repo.find(dynamodb_table, "emp-1", "run-2").run_id == "run-2"
+
+
+def test_delete_finalized_run_raises(dynamodb_table: Table, rates_2026: RateTable) -> None:
+    run = _draft()
+    payrun_repo.create(dynamodb_table, run)
+    _finalize(dynamodb_table, rates_2026, run)
+
+    with pytest.raises(InvalidStateError):
+        payrun_repo.delete_draft(dynamodb_table, "emp-1", date(2026, 1, 16), "run-1")
+
+    # the run and its YTD contribution both survive
+    assert payrun_repo.find(dynamodb_table, "emp-1", "run-1").status == PayRunStatus.FINALIZED
+    stored = ytd_repo.get_or_none(dynamodb_table, "emp-1", "nanny-1", 2026)
+    assert stored is not None
+    assert stored.social_security_wages == Decimal("1187.50")
+
+
+def test_delete_draft_fails_when_the_item_is_gone(dynamodb_table: Table) -> None:
+    """A missing item is not a DRAFT item — deleting it twice must not
+    silently succeed and read as "draft removed"."""
+    with pytest.raises(InvalidStateError):
+        payrun_repo.delete_draft(dynamodb_table, "emp-1", date(2026, 1, 16), "run-1")
 
 
 def test_finalize_transitions_status_and_stores_payroll(
@@ -192,3 +228,32 @@ def test_list_for_employer_filters_by_year(dynamodb_table: Table) -> None:
 
     only_2026 = payrun_repo.list_for_employer(dynamodb_table, "emp-1", year=2026)
     assert {r.run_id for r in only_2026} == {"run-2026"}
+
+
+def test_reads_a_run_stored_before_extra_pay_existed(dynamodb_table: Table) -> None:
+    """Runs persisted by an earlier version must stay readable.
+
+    `GrossPayResult` is stored inside the PayRun item, so a run written before
+    extra pay shipped has no `extra_pay` key and no `extra_pay_lines` array. It
+    had no extra pay by definition, so the backfill is zero — but it must not
+    raise, or every list/get/finalize against the live table would 500.
+    """
+    item = _to_item(_draft())
+    del item["extra_pay_lines"]
+    del item["gross"]["extra_pay"]
+    dynamodb_table.put_item(Item=item)
+
+    fetched = payrun_repo.get(dynamodb_table, "emp-1", date(2026, 1, 16), "run-1")
+    assert fetched.extra_pay_lines == []
+    assert str(fetched.gross.extra_pay) == "0.00"
+    assert str(fetched.gross.gross) == "1187.50"
+
+    # and it is editable from there like any other draft
+    updated = fetched.with_recomputed_pay(
+        fetched.hour_lines,
+        [ExtraPayLine(note="Bonus", amount=Money("250.00"))],
+        hourly_rate=Decimal("25.00"),
+        overtime_policy=OvertimePolicy.APPLIES,
+    )
+    assert str(updated.gross.extra_pay) == "250.00"
+    assert str(updated.gross.gross) == "1437.50"

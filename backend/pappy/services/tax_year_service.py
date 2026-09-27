@@ -254,6 +254,7 @@ def _earnings_summary_for(
         hours_unpaid=sum((g.unpaid_hours for g in gross_results), Decimal(0)),
         straight_time_pay=_sum_money([g.straight_time_pay for g in gross_results]),
         overtime_premium_pay=_sum_money([g.overtime_premium_pay for g in gross_results]),
+        extra_pay=_sum_money([g.extra_pay for g in gross_results]),
         gross=_sum_money([p.gross for p in payrolls]),
         withholding=withholding,
         net_pay=_sum_money([p.net_pay for p in payrolls]),

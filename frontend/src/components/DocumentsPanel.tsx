@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import { downloadDocumentUrl, listDocuments } from '../api/client';
+import { downloadDocumentFile, listDocuments } from '../api/client';
 import type { Document } from '../api/types';
-import { formatDateTime } from '../format';
+import { formatDate, formatDateTime } from '../format';
 
 const DOCUMENT_TYPE_LABELS: Record<string, string> = {
   PAY_STUB: 'Pay stub',
@@ -14,6 +14,17 @@ const DOCUMENT_TYPE_LABELS: Record<string, string> = {
 };
 
 const currentYear = new Date().getFullYear();
+
+/** What a document covers, in the employer's own terms: the pay date for an
+ * artifact tied to one run (a pay stub), the whole tax year otherwise. Run
+ * IDs are deliberately not shown — they are opaque, and the pay date is what
+ * the employer is actually looking for. Pay stubs generated before the server
+ * stored a pay date fall back to the tax year. */
+function describeCoverage(doc: Document): string {
+  return doc.pay_date
+    ? `Pay date ${formatDate(doc.pay_date)}`
+    : `All of ${doc.tax_year}`;
+}
 
 export function DocumentsPanel() {
   const [docs, setDocs] = useState<Document[] | null>(null);
@@ -42,8 +53,7 @@ export function DocumentsPanel() {
   const handleDownload = async (doc: Document) => {
     setDownloading(doc.doc_id);
     try {
-      const result = await downloadDocumentUrl(doc.doc_id);
-      window.open(result.url, '_blank', 'noopener,noreferrer');
+      await downloadDocumentFile(doc.doc_id);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -89,7 +99,7 @@ export function DocumentsPanel() {
               <th>Type</th>
               <th>Tax year</th>
               <th>Generated</th>
-              <th>Pay runs</th>
+              <th>Covers</th>
               <th>SHA-256</th>
               <th></th>
             </tr>
@@ -100,7 +110,7 @@ export function DocumentsPanel() {
                 <td>{DOCUMENT_TYPE_LABELS[doc.document_type] ?? doc.document_type}</td>
                 <td>{doc.tax_year}</td>
                 <td>{formatDateTime(doc.created_at)}</td>
-                <td>{doc.pay_run_ids.join(', ') || '-'}</td>
+                <td>{describeCoverage(doc)}</td>
                 <td>
                   <code>{doc.sha256.slice(0, 12)}…</code>
                 </td>

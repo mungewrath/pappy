@@ -28,7 +28,7 @@ from pappy.calc.fit import MissingW4Error, resolve_w4
 from pappy.calc.payroll import YtdContext, compute_payroll
 from pappy.models.common import PayRunStatus
 from pappy.models.employee import DefaultScheduleLine, Employee
-from pappy.models.payrun import HourLine, PayRun, PayRunCreate
+from pappy.models.payrun import ExtraPayLine, HourLine, PayRun, PayRunCreate
 from pappy.models.reports import (
     BackfillCreate,
     BackfillMode,
@@ -67,12 +67,10 @@ def create_draft(
         employer_id=employer_id,
         employee_id=employee_id,
         run_id=uuid.uuid4().hex,
-        data=PayRunCreate(
-            period_start=data.period_start,
-            period_end=data.period_end,
-            pay_date=data.pay_date,
-            hour_lines=hour_lines,
-        ),
+        # `model_copy`, not a field-by-field rebuild: the seeded hours are the
+        # only thing that changes, and rebuilding by hand silently dropped
+        # `extra_pay_lines` — a bonus sent with the draft never landed.
+        data=data.model_copy(update={"hour_lines": hour_lines}),
         hourly_rate=employee.hourly_rate,
         overtime_policy=employee.overtime_policy,
     )
@@ -96,15 +94,38 @@ def _auto_populate_hours(
     return lines
 
 
-def update_hours(table: Table, employer_id: str, run_id: str, hour_lines: list[HourLine]) -> PayRun:
+def update_draft(
+    table: Table,
+    employer_id: str,
+    run_id: str,
+    hour_lines: list[HourLine],
+    extra_pay_lines: list[ExtraPayLine],
+) -> PayRun:
     run = payrun_repo.find(table, employer_id, run_id)
     if run.status != PayRunStatus.DRAFT:
-        raise InvalidStateError(f"Cannot edit hours on a {run.status.value} PayRun")
+        raise InvalidStateError(f"Cannot edit a {run.status.value} PayRun")
     employee = employee_repo.get(table, employer_id, run.employee_id)
-    updated = run.with_recomputed_hours(
-        hour_lines, hourly_rate=employee.hourly_rate, overtime_policy=employee.overtime_policy
+    updated = run.with_recomputed_pay(
+        hour_lines,
+        extra_pay_lines,
+        hourly_rate=employee.hourly_rate,
+        overtime_policy=employee.overtime_policy,
     )
     return payrun_repo.save_draft(table, updated)
+
+
+def delete_draft(table: Table, employer_id: str, run_id: str) -> None:
+    """Discard a draft run the employer no longer wants (§3.2).
+
+    Drafts are the only disposable state: nothing has been computed, no YTD
+    accumulator moved, and no document references them. The server re-checks
+    the DRAFT status on the delete itself, so a run finalized in another tab
+    between the read here and the write survives.
+    """
+    run = payrun_repo.find(table, employer_id, run_id)
+    if run.status != PayRunStatus.DRAFT:
+        raise InvalidStateError(f"Cannot delete a {run.status.value} PayRun")
+    payrun_repo.delete_draft(table, employer_id, run.pay_date, run.run_id)
 
 
 def finalize_run(

@@ -15,15 +15,18 @@ function — the store-and-index flow stays the same.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict
+from urllib.parse import quote
 
 from pappy.documents.pay_stub import generate_pay_stub_pdf
 from pappy.models.common import PayRunStatus
 from pappy.models.document import Document, DocumentType
 from pappy.repo import document_repo, employee_repo, employer_repo, payrun_repo
 from pappy.repo.bucket import get_bucket
-from pappy.repo.exceptions import InvalidStateError
+from pappy.repo.exceptions import InvalidStateError, NotFoundError
 
 if TYPE_CHECKING:
     from mypy_boto3_dynamodb.service_resource import Table
@@ -32,6 +35,20 @@ if TYPE_CHECKING:
 
 
 DOWNLOAD_URL_TTL_SECONDS = 900
+
+# Fallback matches the documented local setup (uvicorn on :8000, `compose.yaml`
+# sets it explicitly). This is the *host-visible* address — the browser has to be
+# able to reach it, so it is deliberately not the container's own network name.
+DEFAULT_API_BASE_URL = "http://localhost:8000"
+
+
+def api_base_url() -> str:
+    """Externally reachable base URL of this API, for links handed to a client.
+
+    Only the local-filesystem transport needs it: deployed documents are served
+    by pre-signed S3 URLs the client opens directly (§7.3).
+    """
+    return os.environ.get("PAPPY_API_BASE_URL", DEFAULT_API_BASE_URL).rstrip("/")
 
 
 @dataclass(frozen=True)
@@ -52,6 +69,16 @@ class DownloadInfo(TypedDict):
     sha256: str
     filename: str
     expires_in: int
+    via: str
+
+
+@dataclass(frozen=True)
+class LocalContent:
+    """A stored document resolved to a file on this process's own disk."""
+
+    path: Path
+    filename: str
+    sha256: str
 
 
 def generate_pay_stub(
@@ -166,6 +193,7 @@ def generate_pay_stub(
         s3_key=s3_key,
         sha256=sha256,
         pay_run_ids=[run.run_id],
+        pay_date=run.pay_date,
         filename=filename,
     )
     document_repo.put(table, doc)
@@ -188,16 +216,58 @@ def list_documents(
 def get_download_url(
     table: Table, employer_id: str, doc_id: str
 ) -> DownloadInfo:
-    """Get a pre-signed download URL for an existing document."""
+    """Get a download URL for an existing document, plus how to fetch it.
+
+    With an S3 bucket configured this is a pre-signed HTTPS URL, the deployed
+    path — the browser fetches from S3 directly and the bytes never pass
+    through the API (§7.3). The client may open such a URL as-is.
+
+    Without one, the document is a file on this process's disk, so the URL
+    points at `GET /documents/{id}/content` and must be fetched *with* the
+    caller's credentials. That cannot be a plain browser navigation — a
+    top-level navigation carries no `Authorization` header, so the request
+    would arrive anonymous and be resolved against the wrong employer. Hence
+    `via`: the client fetches the bytes itself and saves them.
+    """
     doc = document_repo.get_by_id(table, employer_id, doc_id)
     bucket = get_bucket()
-    url = bucket.presigned_url(doc.s3_key, expires_in=DOWNLOAD_URL_TTL_SECONDS)
+    if bucket.is_s3:
+        url: str = bucket.presigned_url(
+            doc.s3_key, expires_in=DOWNLOAD_URL_TTL_SECONDS
+        )
+        via = "url"
+    else:
+        url = f"{api_base_url()}/documents/{quote(doc.doc_id)}/content"
+        via = "api"
     return {
         "url": url,
         "sha256": doc.sha256,
         "filename": doc.filename,
         "expires_in": DOWNLOAD_URL_TTL_SECONDS,
+        "via": via,
     }
+
+
+def get_local_content(
+    table: Table, employer_id: str, doc_id: str
+) -> LocalContent:
+    """Resolve a document to a readable file for the local transport.
+
+    The counterpart to `get_download_url`'s local branch. The document lookup
+    is what enforces scoping (§7.1): a doc_id belonging to another employer is
+    a 404 here, and the resolved `s3_key` comes from DynamoDB rather than the
+    request, so nothing client-supplied reaches the filesystem.
+    """
+    doc = document_repo.get_by_id(table, employer_id, doc_id)
+    bucket = get_bucket()
+    if bucket.is_s3:
+        # Deployed environments serve documents by pre-signed URL (§7.3); this
+        # endpoint is the local-filesystem stand-in and has nothing to add.
+        raise NotFoundError("DocumentContent", doc_id)
+    path = bucket.local_path(doc.s3_key)
+    if not path.is_file():
+        raise NotFoundError("DocumentContent", doc_id)
+    return LocalContent(path=path, filename=doc.filename, sha256=doc.sha256)
 
 
 def _compute_ytd(
