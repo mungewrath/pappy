@@ -8,6 +8,7 @@ import { EmployeesPanel } from './components/EmployeesPanel';
 import { EmployerPanel } from './components/EmployerPanel';
 import { PayRunsPanel } from './components/PayRunsPanel';
 import { TaxPanel } from './components/TaxPanel';
+import { YearViewPanel } from './components/YearViewPanel';
 import { RemindersPanel } from './components/RemindersPanel';
 import { getUser, handleRedirectCallback, isAuthConfigured, isSigninRedirect, login, logout } from './auth/cognito';
 
@@ -21,10 +22,11 @@ type ProfileState =
   | { status: 'missing' }
   | { status: 'ready'; employer: Employer }
   | { status: 'error'; message: string };
-type Tab = 'payruns' | 'tax' | 'documents' | 'reminders' | 'employees' | 'employer';
+type Tab = 'payruns' | 'year' | 'tax' | 'documents' | 'reminders' | 'employees' | 'employer';
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'payruns', label: 'Pay runs' },
+  { id: 'year', label: 'Year' },
   { id: 'tax', label: 'Tax' },
   { id: 'documents', label: 'Documents' },
   { id: 'reminders', label: 'Reminders' },
@@ -195,6 +197,7 @@ function App() {
           </nav>
 
           {tab === 'payruns' && <PayRunsPanel key="payruns" />}
+          {tab === 'year' && <YearViewPanel key="year" />}
           {tab === 'tax' && <TaxPanel key="tax" />}
           {tab === 'documents' && <DocumentsPanel key="documents" />}
           {tab === 'reminders' && (

@@ -51,10 +51,49 @@ materializes an idempotent `ReminderInstance` keyed by due date
 (`REMINDER#<dueDate>#<rule>`), and emails it via SES (locally: logged).
 Unacknowledged reminders stay visible via `GET /reminders` until acknowledged.
 
+Phase 5 (audit and reimbursement): the year view
+(`GET /tax-years/{year}/year-view`) lists every finalized run with the §5.4
+overtime-premium breakdown and running YTD totals, filterable by pay-date
+range and employee. The running totals are accumulated server-side in `Money`
+because §5.5 forbids the SPA from adding money — it formats the exact strings
+and nothing more. A date range is a sort-key range on the pay-run partition
+(§4), so a filtered view is still a single `Query`.
+
+`POST /tax-years/{year}/year-view.csv` writes that view to the document store
+as a hashed `YEAR_VIEW_CSV` artifact, so an export is auditable and provable
+rather than a transient download. Money in the CSV is the exact decimal string
+the ledger holds — no currency symbol, separator, or float rounding — because
+the file is meant to be compared against the archive. Each export is its own
+document: a re-export with different filters is a different artifact, and an
+employer needs to evidence what they actually sent.
+
+Dependent care FSA receipts (§6.3) under `/fsa`: `GET /fsa/preview` computes
+the eligible wages, cumulative claimed, and any over-limit warning for a
+service period *without writing anything*, so the SPA can show live figures as
+the dates change. `POST /fsa/receipts` renders a ReportLab receipt — provider
+name/address/TIN, dependent, dates of service, statement of services,
+signature block — and stores it like any other artifact. The provider TIN is
+supplied transiently in the request, reaches one generated PDF, and is never
+persisted or logged (§7.3), the same treatment employee SSNs get on the EFW2
+path. The statutory annual cap lives in the rate table (§5.2, so a future
+year's cap is a new JSON row); `Employer.fsa_plan_limit` optionally lowers it
+when a plan elects less, and `Employer.fsa_include_employer_taxes` controls
+whether the employer FICA halves count toward a claim. Cumulative claimed is
+*derived* by summing the `claimed_amount` on this year's receipts rather than
+tracked in a counter, so it cannot drift from the receipts actually issued.
+
+Note for deployments: `rates/2026.json` is **version 2**. It adds the
+`dependent_care_fsa` block and changes no withholding figure. Re-running the
+seeder installs v2 alongside any existing v1, and `latest_for_year` prefers it;
+v1 rows stay in place because §5.2 makes a referenced version immutable, which
+is why `dependent_care_fsa` is optional on the model. Against a v1-only table
+the FSA cap reports `limit_source: "unknown"` and no over-claim check is
+applied, rather than failing.
+
 Not yet implemented: Adjustment entries (post-finalization corrections and
-non-taxable reimbursements), and the later document generators for
-FSA receipts, Schedule H, W-2/W-3, 1040-ES, and annual earnings summaries. The
-tax-year endpoints already expose the numbers behind those future artifacts.
+non-taxable reimbursements), and the official-form PDF generators for
+Schedule H, W-2/W-3, and 1040-ES. The tax-year endpoints already expose the
+numbers behind those future artifacts.
 
 ## Sending a test reminder
 

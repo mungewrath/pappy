@@ -1,9 +1,10 @@
 """Document entity (design-doc.md §3.1).
 
 A generated artifact: pay stub, FSA receipt, Schedule H, W-2, W-3,
-Form 1040-ES, or annual earnings summary. Each document is produced from
-finalized pay runs, stored in S3 with a SHA-256 content hash, and served
-via short-lived pre-signed URLs — never public reads (§7.3).
+Form 1040-ES, annual earnings summary, or a year-view CSV export. Each
+document is produced from finalized pay runs, stored in S3 with a SHA-256
+content hash, and served via short-lived pre-signed URLs — never public
+reads (§7.3).
 
 Phase 3 delivers the first artifact (pay stub PDF) and the document
 store foundation. Later phases add the remaining generators.
@@ -17,6 +18,8 @@ from enum import Enum
 
 from pydantic import BaseModel, Field
 
+from pappy.money import Money
+
 
 class DocumentType(str, Enum):
     """Kinds of generated artifact (design-doc.md §3.1)."""
@@ -28,6 +31,7 @@ class DocumentType(str, Enum):
     W3 = "W3"
     FORM_1040ES = "FORM_1040ES"
     EARNINGS_SUMMARY = "EARNINGS_SUMMARY"
+    YEAR_VIEW_CSV = "YEAR_VIEW_CSV"
 
 
 class Document(BaseModel):
@@ -40,8 +44,16 @@ class Document(BaseModel):
 
     `pay_run_ids` are opaque identifiers, so `pay_date` is stored alongside
     them for the artifacts that cover one run (a pay stub) — the archive
-    lists by pay date, not by id. Documents spanning a whole tax year (W-2,
-    Schedule H, earnings summary) leave it unset.
+    lists by pay date, not by id. Documents spanning a range of runs (a
+    year-view CSV, an FSA receipt) instead record that range in
+    `period_start`/`period_end`; a document covering a whole tax year
+    without a narrower range leaves both unset.
+
+    `claimed_amount` is set only on FSA receipts: the amount the employer
+    actually claimed against the plan. Cumulative claimed is *derived* by
+    summing this field over the year's receipts rather than tracked
+    separately, so it cannot drift from the receipts actually issued
+    (§6.3).
     """
 
     employer_id: str
@@ -50,6 +62,9 @@ class Document(BaseModel):
     tax_year: int
     pay_run_ids: list[str] = Field(default_factory=list)
     pay_date: date | None = None
+    period_start: date | None = None
+    period_end: date | None = None
+    claimed_amount: Money | None = None
     s3_key: str
     sha256: str
     filename: str
@@ -66,6 +81,9 @@ class Document(BaseModel):
         sha256: str,
         pay_run_ids: list[str] | None = None,
         pay_date: date | None = None,
+        period_start: date | None = None,
+        period_end: date | None = None,
+        claimed_amount: Money | None = None,
         filename: str = "",
     ) -> Document:
         now = datetime.now(UTC)
@@ -78,6 +96,9 @@ class Document(BaseModel):
             sha256=sha256,
             pay_run_ids=pay_run_ids or [],
             pay_date=pay_date,
+            period_start=period_start,
+            period_end=period_end,
+            claimed_amount=claimed_amount,
             filename=filename or f"{document_type.value}.pdf",
             created_at=now,
         )

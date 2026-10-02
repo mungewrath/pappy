@@ -21,6 +21,7 @@ import type {
   BackfillResult,
   Document,
   DocumentDownload,
+  DocumentType,
   EarningsSummary,
   Employee,
   EmployeeCreate,
@@ -29,6 +30,9 @@ import type {
   EmployerCreate,
   EmployerUpdate,
   FinalizePendingResult,
+  FsaPreview,
+  FsaReceiptRequest,
+  FsaReceiptResponse,
   PayRun,
   PayRunCreate,
   PayRunDraftUpdate,
@@ -39,6 +43,7 @@ import type {
   TestSendResponse,
   W4Election,
   W2Summary,
+  YearView,
 } from './types';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000';
@@ -324,9 +329,12 @@ export function generatePayStub(runId: string): Promise<Document> {
   });
 }
 
-export function listDocuments(taxYear?: number): Promise<Document[]> {
-  const query = taxYear === undefined ? '' : `?tax_year=${taxYear}`;
-  return request<Document[]>(`/documents${query}`);
+export function listDocuments(taxYear?: number, docType?: DocumentType): Promise<Document[]> {
+  const params = new URLSearchParams();
+  if (taxYear !== undefined) params.set('tax_year', String(taxYear));
+  if (docType !== undefined) params.set('doc_type', docType);
+  const query = params.toString();
+  return request<Document[]>(`/documents${query ? `?${query}` : ''}`);
 }
 
 /** Get a short-lived URL for downloading a generated document. */
@@ -351,6 +359,67 @@ export async function downloadDocumentFile(docId: string): Promise<void> {
     return;
   }
   window.open(info.url, '_blank', 'noopener,noreferrer');
+}
+// --- Year view and CSV export (design-doc.md §6.2) ----------------------------
+
+export interface YearViewFilters {
+  /** Pay-date range, inclusive on both ends. Omit for the whole year. */
+  start?: string;
+  end?: string;
+  employeeId?: string;
+}
+
+function yearViewQuery(filters?: YearViewFilters): string {
+  const params = new URLSearchParams();
+  if (filters?.start) params.set('start', filters.start);
+  if (filters?.end) params.set('end', filters.end);
+  if (filters?.employeeId) params.set('employee_id', filters.employeeId);
+  const query = params.toString();
+  return query ? `?${query}` : '';
+}
+
+/** Every finalized run in the year, with server-computed running YTD totals.
+ * Drafts are excluded — they have no stored computation yet. */
+export function getYearView(taxYear: number, filters?: YearViewFilters): Promise<YearView> {
+  return request<YearView>(`${taxYearPath(taxYear, '/year-view')}${yearViewQuery(filters)}`);
+}
+
+/** Writes the year view to the document store as a hashed CSV artifact and
+ * returns that Document. The CSV is then downloaded like any other document,
+ * so it is archived and auditable rather than a transient response. */
+export function exportYearViewCsv(
+  taxYear: number,
+  filters?: YearViewFilters,
+): Promise<Document> {
+  return request<Document>(`${taxYearPath(taxYear, '/year-view.csv')}${yearViewQuery(filters)}`, {
+    method: 'POST',
+    body: {},
+  });
+}
+
+// --- Dependent care FSA (design-doc.md §6.3) ---------------------------------
+
+/** The eligible wages and any over-limit warning for a service period, computed
+ * without writing anything — so the form can show live figures as the dates
+ * change, before a receipt exists. */
+export function previewFsaClaim(
+  params: { employeeId: string; periodStart: string; periodEnd: string; claimAmount?: string },
+): Promise<FsaPreview> {
+  const query = new URLSearchParams({
+    employee_id: params.employeeId,
+    period_start: params.periodStart,
+    period_end: params.periodEnd,
+  });
+  if (params.claimAmount !== undefined && params.claimAmount !== '') {
+    query.set('claim_amount', params.claimAmount);
+  }
+  return request<FsaPreview>(`/fsa/preview?${query.toString()}`);
+}
+
+/** Generates and stores an FSA receipt. The provider TIN is sent transiently
+ * for this one PDF — the backend never stores or logs it (§7.3). */
+export function createFsaReceipt(data: FsaReceiptRequest): Promise<FsaReceiptResponse> {
+  return request<FsaReceiptResponse>('/fsa/receipts', { method: 'POST', body: data });
 }
 
 // --- Form helpers -----------------------------------------------------------

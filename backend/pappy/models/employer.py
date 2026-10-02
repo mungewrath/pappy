@@ -7,7 +7,9 @@ from datetime import UTC, datetime
 from pydantic import BaseModel
 
 from pappy.decimals import StrictDecimal
+from pappy.models._update import _set_fields
 from pappy.models.common import Address
+from pappy.money import Money
 
 
 class EmployerCreate(BaseModel):
@@ -23,6 +25,13 @@ class EmployerCreate(BaseModel):
     # specific to this employer's account. Until the annual ESD rate notice
     # is entered, accruals compute at zero.
     wa_ui_experience_rate: StrictDecimal | None = None
+    # Dependent care FSA settings (§6.3). The annual *statutory* cap lives in
+    # the rate table because it is published annually; a plan may elect less,
+    # so this is an optional downward override. `include_employer_taxes` is
+    # the §6.3 configurability on whether employer-paid FICA counts toward
+    # an eligible claim.
+    fsa_plan_limit: Money | None = None
+    fsa_include_employer_taxes: bool = False
 
 
 class EmployerUpdate(BaseModel):
@@ -34,6 +43,8 @@ class EmployerUpdate(BaseModel):
     ubi: str | None = None
     address: Address | None = None
     wa_ui_experience_rate: StrictDecimal | None = None
+    fsa_plan_limit: Money | None = None
+    fsa_include_employer_taxes: bool | None = None
 
 
 class Employer(BaseModel):
@@ -49,6 +60,8 @@ class Employer(BaseModel):
     ubi: str | None = None
     address: Address
     wa_ui_experience_rate: StrictDecimal | None = None
+    fsa_plan_limit: Money | None = None
+    fsa_include_employer_taxes: bool = False
     created_at: datetime
     updated_at: datetime
 
@@ -63,10 +76,13 @@ class Employer(BaseModel):
             ubi=data.ubi,
             address=data.address,
             wa_ui_experience_rate=data.wa_ui_experience_rate,
+            fsa_plan_limit=data.fsa_plan_limit,
+            fsa_include_employer_taxes=data.fsa_include_employer_taxes,
             created_at=now,
             updated_at=now,
         )
 
     def apply_update(self, data: EmployerUpdate) -> Employer:
-        updates = data.model_dump(exclude_unset=True)
-        return self.model_copy(update={**updates, "updated_at": datetime.now(UTC)})
+        return self.model_copy(
+            update={**_set_fields(data), "updated_at": datetime.now(UTC)}
+        )

@@ -15,6 +15,7 @@ function — the store-and-index flow stays the same.
 
 from __future__ import annotations
 
+import mimetypes
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -79,6 +80,20 @@ class LocalContent:
     path: Path
     filename: str
     sha256: str
+    media_type: str
+
+
+def media_type_for(filename: str) -> str:
+    """MIME type for a stored artifact, from its filename.
+
+    The S3 transport records the content type at upload time, so a
+    pre-signed download already carries the right header. The local
+    filesystem transport has no such metadata — `bucket.put` writes raw
+    bytes — so the type is derived from the stored filename, which is
+    server-generated and always carries the artifact's real extension.
+    """
+    guessed, _encoding = mimetypes.guess_type(filename)
+    return guessed or "application/octet-stream"
 
 
 def generate_pay_stub(
@@ -267,7 +282,12 @@ def get_local_content(
     path = bucket.local_path(doc.s3_key)
     if not path.is_file():
         raise NotFoundError("DocumentContent", doc_id)
-    return LocalContent(path=path, filename=doc.filename, sha256=doc.sha256)
+    return LocalContent(
+        path=path,
+        filename=doc.filename,
+        sha256=doc.sha256,
+        media_type=media_type_for(doc.filename),
+    )
 
 
 def _compute_ytd(

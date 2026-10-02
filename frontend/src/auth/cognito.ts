@@ -1,9 +1,11 @@
 /**
  * Cognito Hosted UI auth (§2.2, §7.1).
  *
- * Auth is a Cognito user pool with Hosted UI and TOTP MFA; API Gateway's JWT
+ * Auth is a Cognito user pool with Hosted UI; API Gateway's JWT
  * authorizer validates the resulting access token natively — the API never
- * sees a request that isn't already authenticated. This module wraps
+ * sees a request that isn't already authenticated. MFA is deliberately off
+ * (design-doc.md §7.1 trades it away for sign-in convenience at this
+ * single-user threat model). This module wraps
  * `oidc-client-ts`'s `UserManager` to run the OAuth2 authorization-code +
  * PKCE flow against Hosted UI (no client secret — SPA clients don't get
  * one) and exposes the access token to the API client.

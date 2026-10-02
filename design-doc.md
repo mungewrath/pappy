@@ -187,8 +187,11 @@ reimbursement (non-taxable, tracked separately), advance repayment. A bonus is
 pay line on the `PayRun` (§5.1), editable like hours while the run is a DRAFT.
 
 **Document** — generated artifact. Type (`PAY_STUB`, `FSA_RECEIPT`, `SCHEDULE_H`,
-`W2`, `W3`, `FORM_1040ES`, `EARNINGS_SUMMARY`), tax year, S3 key, SHA-256, generated-at, and the set of
-PayRun IDs it covers.
+`W2`, `W3`, `FORM_1040ES`, `EARNINGS_SUMMARY`, `YEAR_VIEW_CSV`), tax year, S3 key, SHA-256, generated-at, and the set of
+PayRun IDs it covers. Artifacts spanning several runs (an FSA receipt, a filtered year-view
+export) record the date range they cover; an FSA receipt also records the amount claimed,
+so cumulative claimed is derived by summing receipts rather than tracked in a counter that
+could drift from what was issued.
 
 **ReminderRule / ReminderInstance** — what is due, when, whether it was sent,
 whether it was acknowledged.
@@ -525,13 +528,29 @@ IRS notice. Testing is weighted accordingly.
 | 2 | Pay run CRUD, default schedule seeding, finalize transaction, YTD accumulators | The core loop |
 | 3 | Pay stub PDF + document store | First artifact out the door |
 | 4 | Reminders: EventBridge + SES + acknowledgement | Weekly loop becomes hands-off |
-| 5 | Year view, CSV export, FSA receipts | Audit + reimbursement |
-| 6 | Schedule H, W-2 copies, annual earnings summary, EFW2 file, quarterly 1040-ES figures | Tax season |
+| 5 | Year view, CSV export, FSA receipts | Audit + reimbursement — **delivered**; see below |
+| 6 | Schedule H, W-2 copies, annual earnings summary, EFW2 file, quarterly 1040-ES figures | Tax season. The *figures* and the EFW2 file are done and exposed under `/tax-years/{year}`; the official-form **PDFs** (Schedule H, W-2 copies, 1040-ES) are not |
 | 7 | Recompute-and-diff job, billing alarm, backup/restore runbook | Operational hardening |
 
 Phase 1 is deliberately first and deliberately AWS-free: if the arithmetic is
 wrong, nothing else matters, and it is by far the easiest part to get right in a
 pure test harness.
+
+**Phase 5, as built.** Two decisions in the delivered work are worth recording
+because they are not obvious from the requirements:
+
+- *The year view and its CSV are computed server-side.* §5.5 forbids the SPA from
+  doing arithmetic on money, and a running YTD total is arithmetic. So the
+  aggregation, the running totals, and the CSV all live in
+  `pappy.calc.year_view`, and the SPA formats exact decimal strings. The CSV is
+  a stored, hashed `Document` rather than a streamed response, so an export is
+  part of the audited archive.
+- *The FSA provider TIN is transient.* §6.3 requires a provider TIN on the
+  receipt, while §7.3 forbids persisting identifying numbers. The TIN is
+  supplied per request, reaches one generated PDF, and is written down nowhere
+  else — the same resolution the EFW2 endpoint applies to employee SSNs. The
+  statutory annual cap is rate-table data (§5.2); the employer's plan may elect
+  less, which lives on the employer profile.
 
 ---
 

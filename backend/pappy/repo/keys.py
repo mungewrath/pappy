@@ -60,6 +60,20 @@ def payrun_sk_prefix(year: int | None = None) -> str:
     return f"PAYRUN#{year:04d}-"
 
 
+def payrun_sk_range(start: date, end: date) -> tuple[str, str]:
+    """Sort-key bounds for "pay runs dated between `start` and `end`" (§4).
+
+    Pay-run sort keys are `PAYRUN#<isoDate>#<runId>`, so an inclusive date range
+    is a single `Query` bounded by this pair — no GSI at this scale. The upper
+    bound uses U+FFFF rather than a bare `PAYRUN#<end>` because that prefix
+    sorts *before* any run id, which would drop every run on the end date.
+
+    ISO dates sort lexicographically, so `start`/`end` need no zero-padding
+    beyond what `date.isoformat()` already produces.
+    """
+    return (f"PAYRUN#{start.isoformat()}", f"PAYRUN#{end.isoformat()}￿")
+
+
 def ytd_sk(tax_year: int, employee_id: str) -> str:
     return f"YTD#{tax_year:04d}#{employee_id}"
 

@@ -1,7 +1,7 @@
 {
   "tax_year": 2026,
-  "version": 1,
-  "source_notes": "Values verified against: IRS Publication 15-T (2026) percentage-method tables and Worksheet 1A offsets; SSA 2026 contribution and benefit base ($184,500, announced 2025-10-24); IRS Publication 926 (2026) household coverage thresholds ($3,000 FICA cash wages; $1,000 quarterly FUTA); WA ESD/paidleave.wa.gov 2026 PFML premium (1.13%, split 71.43%/28.57%, wage base = SS cap) and WA Cares premium (0.58%, employee-only, no wage cap for 2026); WA ESD 2026 UI taxable wage base ($78,200). Re-verify every value against current publications before relying on this table for a filing season.",
+  "version": 2,
+  "source_notes": "Values verified against: IRS Publication 15-T (2026) percentage-method tables and Worksheet 1A offsets; SSA 2026 contribution and benefit base ($184,500, announced 2025-10-24); IRS Publication 926 (2026) household coverage thresholds ($3,000 FICA cash wages; $1,000 quarterly FUTA); IRS dependent care FSA $5,000 annual election limit; WA ESD/paidleave.wa.gov 2026 PFML premium (1.13%, split 71.43%/28.57%, wage base = SS cap) and WA Cares premium (0.58%, employee-only, no wage cap for 2026); WA ESD 2026 UI taxable wage base ($78,200). Re-verify every value against current publications before relying on this table for a filing season.",
   "pay_periods_per_year": 52,
   "fit_standard_offsets": {
     "SINGLE_OR_MFS": "8600",
@@ -105,5 +105,8 @@
   "household_coverage": {
     "fica_cash_wage_threshold": "3000",
     "futa_quarterly_cash_wage_threshold": "1000"
+  },
+  "dependent_care_fsa": {
+    "annual_limit": "5000"
   }
 }

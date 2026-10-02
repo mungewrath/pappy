@@ -14,10 +14,20 @@ The 2026 file carries values verified against current publications:
 - SSA 2026 contribution and benefit base ($184,500), announced Oct 2025
 - IRS Publication 926 (2026) household coverage thresholds ($3,000 FICA;
   $1,000 quarterly FUTA) and FUTA parameters
+- IRS dependent care FSA $5,000 annual election limit (§6.3)
 - WA ESD / paidleave.wa.gov 2026 PFML premium (1.13%, split 71.43/28.57),
   WA Cares premium (0.58%, employee-only, no wage cap for 2026), and UI
   taxable wage base ($78,200; the experience rate itself is per-employer,
   assigned annually by ESD)
+
+**2026 is version 2.** Version 1 shipped without the `dependent_care_fsa`
+block, added for the FSA receipts in Phase 5. Because §5.2 makes a version
+immutable once a pay run references it, that v1 row is still in deployed
+tables and can never gain the field — hence the bump, so the seeder installs a
+row that carries it, and hence the field being optional on the model. v2 is
+otherwise identical to v1: no withholding figure changed, which
+`tests/test_fsa.py::TestPreChangeRateTable` asserts directly. Already-finalized
+runs keep pointing at v1 and are unaffected.
 
 Each January a new `<year>.json` must be added after verifying every
 value against that year's publications (§5.2 annual rollover checklist).
@@ -33,6 +43,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from pappy.decimals import StrictDecimal
 from pappy.models.common import FilingStatus
+from pappy.money import Money
 
 
 class FederalTaxBracket(BaseModel):
@@ -161,6 +172,26 @@ class HouseholdCoverageConfig(BaseModel):
     futa_quarterly_cash_wage_threshold: StrictDecimal
 
 
+class DependentCareFsaConfig(BaseModel):
+    """Dependent Care FSA statutory annual limit (§6.3).
+
+    The $5,000 cap is annual statutory data, so it lives in the versioned
+    rate table like every other published figure: a change in a future year
+    is a new JSON row, never a code change (§5.2). An employer's *plan* may
+    elect less than the cap, which is why this is the ceiling and not the
+    plan — `Employer.fsa_plan_limit` overrides it downward when set.
+
+    The limit is per household, not per employee. At one household employee
+    (design-doc.md §2) that distinction cannot bite, but the ceiling is
+    applied to the employer's cumulative claim rather than per employee so
+    the arithmetic stays right if that ever changes.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    annual_limit: Money
+
+
 class RateTable(BaseModel):
     """All statutory values for one tax year, versioned.
 
@@ -184,6 +215,13 @@ class RateTable(BaseModel):
     wa_cares: WaCaresConfig
     wa_ui: WaUiConfig
     household_coverage: HouseholdCoverageConfig
+    # Added in v2. Optional, because a rate-table row written by an earlier
+    # version of this app has no such key and §5.2 makes that row immutable —
+    # a deployed table keeps its v1 forever, and `put_if_absent` will never
+    # rewrite it. `None` therefore means "this table predates the block", not
+    # "no limit exists": callers must treat the statutory cap as *unknown*
+    # rather than as zero. See `pappy.services.fsa_service`.
+    dependent_care_fsa: DependentCareFsaConfig | None = None
 
     @property
     def rate_table_id(self) -> str:
@@ -237,6 +275,9 @@ def parse_rate_table(data: dict[str, Any]) -> RateTable:
         raise ValueError("wa_pfml shares do not sum to 1")
     if table.futa.effective_rate < 0:
         raise ValueError("futa state credit exceeds the gross FUTA rate")
+    fsa = table.dependent_care_fsa
+    if fsa is not None and fsa.annual_limit.amount <= 0:
+        raise ValueError("dependent_care_fsa.annual_limit must be positive")
     return table
 
 

@@ -68,11 +68,15 @@ def download_document_content(
     only reach their own documents (§7.1, §7.3). 404 when a bucket *is*
     configured: there is no reason to proxy bytes the client could have
     fetched from S3 directly.
+
+    The media type is derived from the stored filename rather than assumed to
+    be a PDF — a year-view CSV served as `application/pdf` would be handed to
+    the browser as a broken document.
     """
     content = document_service.get_local_content(table, employer_id, doc_id)
     return FileResponse(
         content.path,
-        media_type="application/pdf",
+        media_type=content.media_type,
         filename=content.filename,
         headers={"X-Content-SHA256": content.sha256},
     )

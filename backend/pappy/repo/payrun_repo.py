@@ -17,7 +17,7 @@ from __future__ import annotations
 from datetime import date
 from typing import TYPE_CHECKING, Any
 
-from boto3.dynamodb.conditions import Attr, Key
+from boto3.dynamodb.conditions import Attr, ConditionBase, Key
 from boto3.dynamodb.types import TypeSerializer
 from botocore.exceptions import ClientError
 
@@ -89,13 +89,45 @@ def find(table: Table, employer_id: str, run_id: str) -> PayRun:
     return _from_item(items[0])
 
 
-def list_for_employer(table: Table, employer_id: str, *, year: int | None = None) -> list[PayRun]:
+def list_for_employer(
+    table: Table,
+    employer_id: str,
+    *,
+    year: int | None = None,
+    start: date | None = None,
+    end: date | None = None,
+) -> list[PayRun]:
+    """Pay runs for an employer, ordered by pay date.
+
+    `year` bounds the query with a sort-key prefix; `start`/`end` bound it
+    with a range condition instead (§4). Either alone is a single `Query` —
+    no GSI at this scale. Passing both narrows to the range, and is rejected
+    when the range escapes the year rather than silently ignoring one of the
+    two filters.
+    """
+    condition = _payrun_key_condition(year, start, end)
     response = table.query(
-        KeyConditionExpression=Key("pk").eq(keys.employer_pk(employer_id))
-        & Key("sk").begins_with(keys.payrun_sk_prefix(year))
+        KeyConditionExpression=Key("pk").eq(keys.employer_pk(employer_id)) & condition
     )
     runs = [_from_item(item) for item in response.get("Items", [])]
     return sorted(runs, key=lambda r: (r.pay_date, r.run_id))
+
+
+def _payrun_key_condition(
+    year: int | None, start: date | None, end: date | None
+) -> ConditionBase:
+    if (start is None) != (end is None):
+        raise ValueError("start and end must be given together")
+    if start is not None and end is not None:
+        if start > end:
+            raise ValueError("start must not be after end")
+        if year is not None and not (start.year == year and end.year == year):
+            raise ValueError(
+                f"date range {start}..{end} is not within tax year {year}"
+            )
+        low, high = keys.payrun_sk_range(start, end)
+        return Key("sk").between(low, high)
+    return Key("sk").begins_with(keys.payrun_sk_prefix(year))
 
 
 def save_draft(table: Table, run: PayRun) -> PayRun:

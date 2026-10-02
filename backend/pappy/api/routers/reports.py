@@ -8,6 +8,7 @@ never persisted or logged (§7.3).
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends
@@ -15,13 +16,15 @@ from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
 
 from pappy.api.deps import EmployerIdDep, get_table
+from pappy.models.document import Document
 from pappy.models.reports import (
     EarningsSummary,
     QuarterlyEstimates,
     ScheduleHWorksheet,
     W2Summary,
 )
-from pappy.services import tax_year_service
+from pappy.models.year_view import YearView
+from pappy.services import tax_year_service, year_view_service
 
 router = APIRouter(prefix="/tax-years", tags=["tax"])
 
@@ -82,4 +85,56 @@ def efw2(
         content,
         media_type="text/plain",
         headers={"Content-Disposition": f'attachment; filename="EFW2-{tax_year}.txt"'},
+    )
+
+
+# --- Year view and CSV export (design-doc.md §6.2) ----------------------------
+
+
+@router.get("/{tax_year}/year-view", response_model=YearView)
+def year_view(
+    tax_year: int,
+    table: TableDep,
+    employer_id: EmployerIdDep,
+    start: date | None = None,
+    end: date | None = None,
+    employee_id: str | None = None,
+) -> YearView:
+    """Every finalized run in the year with running YTD totals (§6.2).
+
+    Filterable by pay-date range and employee. Drafts are excluded — they have
+    no stored computation yet and belong in the pay-run list.
+    """
+    return year_view_service.year_view(
+        table,
+        employer_id,
+        tax_year=tax_year,
+        start=start,
+        end=end,
+        employee_id=employee_id,
+    )
+
+
+@router.post("/{tax_year}/year-view.csv", response_model=Document, status_code=201)
+def export_year_view(
+    tax_year: int,
+    table: TableDep,
+    employer_id: EmployerIdDep,
+    start: date | None = None,
+    end: date | None = None,
+    employee_id: str | None = None,
+) -> Document:
+    """Write the year view to the document store as a hashed CSV artifact.
+
+    Returns the Document rather than the bytes so the SPA downloads it
+    through the same pre-signed path as every other artifact (§7.3) — the CSV
+    is an archived document, not a transient response.
+    """
+    return year_view_service.export_year_view_csv(
+        table,
+        employer_id,
+        tax_year=tax_year,
+        start=start,
+        end=end,
+        employee_id=employee_id,
     )

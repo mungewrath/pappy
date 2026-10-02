@@ -15,6 +15,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from pappy.models.payrun import ExtraPayLine
+from pappy.models.ratetable import RateTable
 
 
 def _create_employer(client: TestClient) -> dict[str, Any]:
@@ -250,7 +251,9 @@ def test_employee_create_requires_existing_employer(client: TestClient) -> None:
     assert response.status_code == 404
 
 
-def test_payrun_lifecycle_draft_edit_finalize(client: TestClient, seeded_rates: object) -> None:
+def test_payrun_lifecycle_draft_edit_finalize(
+    client: TestClient, seeded_rates: RateTable
+) -> None:
     _create_employer(client)
     employee = _create_employee(client)
     employee_id = employee["employee_id"]
@@ -317,7 +320,8 @@ def test_payrun_lifecycle_draft_edit_finalize(client: TestClient, seeded_rates: 
     body = finalized.json()
     assert body["status"] == "FINALIZED"
     # rate table version resolved server-side from RATES#2026
-    assert body["rate_table_version"] == 1
+    # The version of the table seeded for the year, not a hardcoded 1.
+    assert body["rate_table_version"] == seeded_rates.version
     payroll = body["payroll"]
     assert payroll is not None
     # $400 gross: SS $24.80, Medicare $5.80, FIT ($20,800 annualized less the

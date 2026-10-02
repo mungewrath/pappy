@@ -14,7 +14,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from pappy.api.errors import register_error_handlers
-from pappy.api.routers import documents, employees, employers, payruns, reminders, reports
+from pappy.api.routers import (
+    documents,
+    employees,
+    employers,
+    fsa,
+    payruns,
+    reminders,
+    reports,
+)
 
 app = FastAPI(title="Pappy API", version="0.1.0")
 
@@ -36,6 +44,7 @@ app.include_router(payruns.router)
 app.include_router(documents.router)
 app.include_router(reports.router)
 app.include_router(reminders.router)
+app.include_router(fsa.router)
 
 
 class HelloResponse(BaseModel):

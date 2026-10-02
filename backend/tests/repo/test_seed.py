@@ -18,11 +18,16 @@ def test_seeds_all_files_and_is_idempotent(
     (tmp_path / "2027.json").write_text(json.dumps(next_year), encoding="utf-8")
     (tmp_path / "notes.txt").write_text("not a rate table", encoding="utf-8")
 
+    # The version is whatever the shipped file says — bumping it (§5.2) must
+    # not require editing this test.
+    v = rates_2026.version
+    expected = [f"2026 v{v}", f"2027 v{v}"]
+
     seeded, skipped = seed.seed_from_directory(dynamodb_table, tmp_path)
-    assert seeded == ["2026 v1", "2027 v1"]
+    assert seeded == expected
     assert skipped == []
-    assert rate_table_repo.get(dynamodb_table, 2026, 1) == rates_2026
+    assert rate_table_repo.get(dynamodb_table, 2026, v) == rates_2026
 
     seeded_again, skipped_again = seed.seed_from_directory(dynamodb_table, tmp_path)
     assert seeded_again == []
-    assert skipped_again == ["2026 v1", "2027 v1"]
+    assert skipped_again == expected

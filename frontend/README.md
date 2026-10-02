@@ -70,5 +70,5 @@ in `cognito.ts` is what `src/api/client.ts` attaches as the `Authorization:
 Bearer` header.
 
 Self-signup is disabled (§7.1) — new users are created via
-`aws_cognito_user` in the `auth` Terraform module (or the AWS console/CLI),
-and must set up TOTP MFA on first sign-in through Hosted UI.
+`aws_cognito_user` in the `auth` Terraform module (or the AWS console/CLI).
+MFA is off (§7.1), so there is no TOTP enrolment step on first sign-in.

@@ -7,6 +7,7 @@ from datetime import UTC, date, datetime
 from pydantic import BaseModel
 
 from pappy.decimals import StrictDecimal
+from pappy.models._update import _set_fields
 from pappy.models.common import Address, OvertimePolicy
 
 
@@ -83,5 +84,6 @@ class Employee(BaseModel):
         )
 
     def apply_update(self, data: EmployeeUpdate) -> Employee:
-        updates = data.model_dump(exclude_unset=True)
-        return self.model_copy(update={**updates, "updated_at": datetime.now(UTC)})
+        return self.model_copy(
+            update={**_set_fields(data), "updated_at": datetime.now(UTC)}
+        )

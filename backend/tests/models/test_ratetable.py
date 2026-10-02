@@ -19,8 +19,9 @@ from pappy.models.ratetable import RateTable, parse_rate_table
 
 def test_loads_shipped_2026_table(rates_2026: RateTable) -> None:
     assert rates_2026.tax_year == 2026
-    assert rates_2026.version == 1
-    assert rates_2026.rate_table_id == "2026#v1"
+    # The version is file data (§5.2); derived here so bumping it to install a
+    # new block does not require editing this test.
+    assert rates_2026.rate_table_id == f"2026#v{rates_2026.version}"
     assert rates_2026.pay_periods_per_year == 52
     assert rates_2026.futa.effective_rate == Decimal("0.006")
     assert rates_2026.wa_cares.wage_base_cap is None

@@ -52,6 +52,11 @@ export interface EmployerCreate {
   address: Address;
   /** ESD-assigned experience rate (e.g. "0.0128"), from the annual rate notice. */
   wa_ui_experience_rate?: DecimalString | null;
+  /** Dependent care FSA plan limit (§6.3). Omit/null to use the statutory cap
+   * from the year's rate table; set it when the plan elects less. */
+  fsa_plan_limit?: DecimalString | null;
+  /** Whether employer-paid FICA counts toward an eligible FSA claim (§6.3). */
+  fsa_include_employer_taxes?: boolean;
 }
 
 export interface EmployerUpdate {
@@ -61,6 +66,8 @@ export interface EmployerUpdate {
   ubi?: string | null;
   address?: Address;
   wa_ui_experience_rate?: DecimalString | null;
+  fsa_plan_limit?: DecimalString | null;
+  fsa_include_employer_taxes?: boolean;
 }
 
 export interface Employer {
@@ -71,6 +78,8 @@ export interface Employer {
   ubi?: string | null;
   address: Address;
   wa_ui_experience_rate?: DecimalString | null;
+  fsa_plan_limit?: DecimalString | null;
+  fsa_include_employer_taxes: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -262,7 +271,8 @@ export type DocumentType =
   | 'W2'
   | 'W3'
   | 'FORM_1040ES'
-  | 'EARNINGS_SUMMARY';
+  | 'EARNINGS_SUMMARY'
+  | 'YEAR_VIEW_CSV';
 
 export interface Document {
   employer_id: string;
@@ -277,6 +287,14 @@ export interface Document {
    * single run (a pay stub). Absent on year-wide documents (W-2, Schedule H,
    * earnings summary) and on stubs generated before the field existed. */
   pay_date?: string | null;
+  /** Range of runs the artifact covers, for artifacts spanning several (a
+   * year-view CSV export, an FSA receipt). Both null when the artifact
+   * covers a whole tax year without a narrower range. */
+  period_start?: string | null;
+  period_end?: string | null;
+  /** FSA receipts only: the amount claimed against the plan. Cumulative
+   * claimed is derived server-side by summing these (§6.3). */
+  claimed_amount?: DecimalString | null;
   created_at: string;
 }
 
@@ -290,6 +308,94 @@ export interface DocumentDownload {
   /** `url` may be opened directly; `api` must be fetched with the caller's
    * `Authorization` header, since a browser cannot add one to a navigation. */
   via: 'url' | 'api';
+}
+
+// --- Year view and CSV export (design-doc.md §6.2) ----------------------------
+
+/** One finalized pay run with the §5.4 overtime-premium split and the year's
+ * running totals through it. `ytd_*` include this run. */
+export interface YearViewRow {
+  run_id: string;
+  pay_date: string;
+  period_start: string;
+  period_end: string;
+  employee_id: string;
+  employee_name: string;
+  regular_hours: DecimalString;
+  overtime_hours: DecimalString;
+  other_paid_hours: DecimalString;
+  unpaid_hours: DecimalString;
+  straight_time_pay: DecimalString;
+  overtime_premium_pay: DecimalString;
+  extra_pay: DecimalString;
+  gross: DecimalString;
+  withholding: EmployeeWithholding;
+  total_withholding: DecimalString;
+  net_pay: DecimalString;
+  employer_accruals: EmployerAccruals;
+  ytd_gross: DecimalString;
+  ytd_total_withholding: DecimalString;
+  ytd_net_pay: DecimalString;
+}
+
+/** Column totals — equal to the last row's running totals, computed in the
+ * same server-side pass so the table and the CSV total row cannot disagree. */
+export interface YearViewTotals {
+  finalized_run_count: number;
+  gross: DecimalString;
+  total_withholding: DecimalString;
+  net_pay: DecimalString;
+  ytd_gross: DecimalString;
+  ytd_total_withholding: DecimalString;
+  ytd_net_pay: DecimalString;
+}
+
+export interface YearView {
+  tax_year: number;
+  period_start?: string | null;
+  period_end?: string | null;
+  employee_id?: string | null;
+  rows: YearViewRow[];
+  totals: YearViewTotals;
+}
+
+// --- Dependent care FSA (design-doc.md §6.3) ---------------------------------
+
+/** The money behind a claim, computed without writing anything. */
+export interface FsaPreview {
+  tax_year: number;
+  period_start: string;
+  period_end: string;
+  pay_run_count: number;
+  gross_wages: DecimalString;
+  employer_fica: DecimalString;
+  eligible_wages: DecimalString;
+  claim_amount: DecimalString;
+  already_claimed: DecimalString;
+  plan_limit: DecimalString;
+  remaining_before_claim: DecimalString;
+  over_limit: boolean;
+  /** Where `plan_limit` came from. `unknown` means no limit could be
+   * established and none was applied — it is not a cap of zero. */
+  limit_source: 'statutory' | 'plan' | 'unknown';
+  /** Present when the claim would exceed the plan limit. */
+  warning?: string | null;
+}
+
+export interface FsaReceiptRequest {
+  employee_id: string;
+  period_start: string;
+  period_end: string;
+  dependent_name: string;
+  /** Transient — used for this one PDF, never stored (§7.3). */
+  provider_tin: string;
+  /** Omit to claim the full eligible wage total. */
+  claim_amount?: DecimalString | null;
+}
+
+export interface FsaReceiptResponse {
+  document: Document;
+  figures: FsaPreview;
 }
 
 // --- Tax-year artifacts (Phase 6; design-doc.md §6.4–§6.6) -------------------

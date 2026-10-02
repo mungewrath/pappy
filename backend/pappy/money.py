@@ -143,9 +143,13 @@ class Money:
     # --- Pydantic integration -------------------------------------------------
     #
     # Serializes to/from a plain decimal string, so DynamoDB and JSON both see
-    # e.g. "1234.56" rather than a float approximation. `boto3`'s DynamoDB
-    # serializer round-trips `Decimal` directly, so the repo layer converts
-    # this string to `Decimal` at the storage boundary (see pappy/repo).
+    # e.g. "1234.56" rather than a float approximation. Per design-doc.md §5.5
+    # money is stored as that decimal *string* — not as a DynamoDB `N` — which
+    # keeps the stored value byte-identical to what was computed and displayed.
+    # It round-trips losslessly through the validator above; the trade-off is
+    # that money is not range-queryable or arithmetically aggregable in
+    # DynamoDB, which is why the YTD accumulators (§4) are a separate concern
+    # holding `Decimal` covered-wage slices.
 
     @classmethod
     def __get_pydantic_core_schema__(

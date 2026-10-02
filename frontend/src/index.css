@@ -386,3 +386,47 @@ table.breakdown td:nth-child(3) {
   color: #d64545;
   border-color: #d64545;
 }
+
+/* --- Year view (design-doc.md §6.2) ------------------------------------------ */
+
+/* The year view carries 12 columns, which overflows a phone. Scrolling the
+   table sideways beats hiding columns: the whole point is comparing a row
+   against its own running totals. */
+.table-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.table-scroll table.data {
+  min-width: 60rem;
+}
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+/* The totals row is the CSV's total row — the same server-computed figures, so
+   the table and the export can never disagree. */
+tr.totals td {
+  font-weight: 600;
+  border-top: 2px solid var(--border);
+  border-bottom: none;
+}
+
+tr.detail td {
+  background: var(--code-bg);
+  padding: 0.75rem;
+}
+
+tr.detail strong {
+  display: block;
+  margin-bottom: 0.35rem;
+}
+
+tr.detail .muted {
+  margin: 0.5rem 0 0;
+}
